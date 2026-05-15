@@ -50,6 +50,7 @@ const documents = [
 
 function App() {
   const [now, setNow] = useState(getNow)
+  const [currentView, setCurrentView] = useState<'library' | 'note'>('library')
 
   useEffect(() => {
     const scheduleUpdate = () => {
@@ -99,7 +100,11 @@ function App() {
         </nav>
 
         <div className="topbar-right">
-          <button className="secondary-button" type="button">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setCurrentView('note')}
+          >
             New note
           </button>
 
@@ -114,69 +119,69 @@ function App() {
       </header>
 
       <main className="dashboard">
-        <div className="dashboard-layout">
-          <aside className="sidebar" aria-label="Subjects">
-            <div className="sidebar-section">
-              <p className="eyebrow">Library</p>
-              <div className="sidebar-links">
-                <button className="sidebar-link is-active" type="button">
-                  All documents
-                </button>
-                <button className="sidebar-link" type="button">
-                  Recent
-                </button>
-                <button className="sidebar-link" type="button">
-                  Pinned
+        {currentView === 'library' ? (
+          <div className="dashboard-layout">
+            <aside className="sidebar" aria-label="Subjects">
+              <div className="sidebar-section">
+                <p className="eyebrow">Library</p>
+                <div className="sidebar-links">
+                  <button className="sidebar-link is-active" type="button">
+                    All documents
+                  </button>
+                  <button className="sidebar-link" type="button">
+                    Recent
+                  </button>
+                  <button className="sidebar-link" type="button">
+                    Pinned
+                  </button>
+                </div>
+              </div>
+
+              <div className="sidebar-section">
+                <p className="eyebrow">Subjects</p>
+                <div className="subject-list">
+                  {subjects.map((subject) => (
+                    <button key={subject.name} className="subject-item" type="button">
+                      <span>{subject.name}</span>
+                      <span className="subject-count">{subject.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </aside>
+
+            <section className="dashboard-panel" aria-labelledby="dashboard-title">
+              <div className="dashboard-panel__header">
+                <div>
+                  <p className="eyebrow">Library</p>
+                  <h1 id="dashboard-title">Notes and documents</h1>
+                </div>
+              </div>
+
+              <div className="library-search">
+                <label className="search-field">
+                  <span className="sr-only">Search notes and documents</span>
+                  <input type="search" placeholder="Search notes and documents" />
+                </label>
+
+                <button className="secondary-button" type="button">
+                  Filters
                 </button>
               </div>
-            </div>
 
-            <div className="sidebar-section">
-              <p className="eyebrow">Subjects</p>
-              <div className="subject-list">
-                {subjects.map((subject) => (
-                  <button key={subject.name} className="subject-item" type="button">
-                    <span>{subject.name}</span>
-                    <span className="subject-count">{subject.count}</span>
+              <div className="filter-row" aria-label="Content filters">
+                {filters.map((filter) => (
+                  <button
+                    key={filter}
+                    className={filter === 'All' ? 'filter-chip is-active' : 'filter-chip'}
+                    type="button"
+                  >
+                    {filter}
                   </button>
                 ))}
               </div>
-            </div>
-          </aside>
 
-          <section className="dashboard-panel" aria-labelledby="dashboard-title">
-            <div className="dashboard-panel__header">
-              <div>
-                <p className="eyebrow">Library</p>
-                <h1 id="dashboard-title">Notes and documents</h1>
-              </div>
-            </div>
-
-            <div className="library-search">
-              <label className="search-field">
-                <span className="sr-only">Search notes and documents</span>
-                <input type="search" placeholder="Search notes and documents" />
-              </label>
-
-              <button className="secondary-button" type="button">
-                Filters
-              </button>
-            </div>
-
-            <div className="filter-row" aria-label="Content filters">
-              {filters.map((filter) => (
-                <button
-                  key={filter}
-                  className={filter === 'All' ? 'filter-chip is-active' : 'filter-chip'}
-                  type="button"
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
-
-            <div className="library-grid">
-              <div className="capture-grid">
+              <div className="library-grid">
                 <section className="upload-panel">
                   <div className="dropzone">
                     <p className="dropzone-title">Drop files here</p>
@@ -214,85 +219,91 @@ function App() {
                   </div>
                 </section>
 
-                <section className="note-composer" aria-labelledby="note-composer-title">
-                  <div className="note-composer__header">
-                    <div>
-                      <p className="eyebrow">Quick note</p>
-                      <h2 id="note-composer-title">Write inside StudieRommet</h2>
-                    </div>
-                    <button className="secondary-button" type="button">
-                      Save draft
-                    </button>
+                <section className="documents-panel" aria-labelledby="document-list-title">
+                  <div className="documents-panel__header">
+                    <h2 id="document-list-title">Recent documents</h2>
                   </div>
 
-                  <div className="note-composer__body">
-                    <label className="field">
-                      <span>Title</span>
-                      <input type="text" placeholder="Lecture recap" />
-                    </label>
+                  <div className="document-list">
+                    {documents.map((document) => (
+                      <article key={document.title} className="document-card">
+                        <div className="document-card__top">
+                          <div>
+                            <h3>{document.title}</h3>
+                            <p>{document.subject}</p>
+                          </div>
+                          <span className="document-type">{document.type}</span>
+                        </div>
 
-                    <div className="note-composer__meta">
-                      <label className="field">
-                        <span>Subject</span>
-                        <select defaultValue="Management">
-                          {subjects.map((subject) => (
-                            <option key={subject.name} value={subject.name}>
-                              {subject.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="field">
-                        <span>Tags</span>
-                        <input type="text" placeholder="Week 5, summary" />
-                      </label>
-                    </div>
-
-                    <label className="field">
-                      <span>Note</span>
-                      <textarea
-                        rows={10}
-                        placeholder="Write key ideas, formulas, and reminders here"
-                      />
-                    </label>
+                        <div className="document-card__bottom">
+                          <span>{document.meta}</span>
+                          <div className="tag-list">
+                            {document.tags.map((tag) => (
+                              <span key={tag} className="tag">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </article>
+                    ))}
                   </div>
                 </section>
               </div>
+            </section>
+          </div>
+        ) : (
+          <section className="note-page" aria-labelledby="note-page-title">
+            <div className="note-page__header">
+              <div className="note-page__title">
+                <button
+                  className="back-button"
+                  type="button"
+                  onClick={() => setCurrentView('library')}
+                >
+                  Back to library
+                </button>
+                <p className="eyebrow">Notes</p>
+                <h1 id="note-page-title">New note</h1>
+              </div>
 
-              <section className="documents-panel" aria-labelledby="document-list-title">
-                <div className="documents-panel__header">
-                  <h2 id="document-list-title">Recent documents</h2>
-                </div>
-
-                <div className="document-list">
-                  {documents.map((document) => (
-                    <article key={document.title} className="document-card">
-                      <div className="document-card__top">
-                        <div>
-                          <h3>{document.title}</h3>
-                          <p>{document.subject}</p>
-                        </div>
-                        <span className="document-type">{document.type}</span>
-                      </div>
-
-                      <div className="document-card__bottom">
-                        <span>{document.meta}</span>
-                        <div className="tag-list">
-                          {document.tags.map((tag) => (
-                            <span key={tag} className="tag">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
+              <button className="upload-button" type="button">
+                Save draft
+              </button>
             </div>
+
+            <div className="note-page__meta">
+              <label className="field">
+                <span>Title</span>
+                <input type="text" placeholder="Lecture recap" />
+              </label>
+
+              <label className="field">
+                <span>Subject</span>
+                <select defaultValue="Management">
+                  {subjects.map((subject) => (
+                    <option key={subject.name} value={subject.name}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Tags</span>
+                <input type="text" placeholder="Week 5, summary" />
+              </label>
+            </div>
+
+            <label className="field note-page__editor">
+              <span>Note</span>
+              <textarea
+                rows={20}
+                placeholder="Write key ideas, formulas, reminders, and questions here"
+              />
+            </label>
           </section>
-        </div>
+        )}
       </main>
     </div>
   )
