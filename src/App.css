@@ -205,7 +205,8 @@
 
 .search-field input,
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 1rem;
@@ -237,8 +238,15 @@
   padding-bottom: 1.5rem;
 }
 
+.capture-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
 .upload-panel,
-.documents-panel {
+.documents-panel,
+.note-composer {
   border: 1px solid var(--line);
   border-radius: 1.25rem;
   background: rgba(255, 255, 255, 0.52);
@@ -274,6 +282,39 @@
   font-weight: 600;
 }
 
+.note-composer {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.note-composer__header,
+.note-composer__body {
+  padding: 1.25rem;
+}
+
+.note-composer__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.note-composer__header h2 {
+  margin: 0;
+}
+
+.note-composer__body {
+  display: grid;
+  gap: 1rem;
+}
+
+.note-composer__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
 .upload-meta {
   display: grid;
   gap: 1rem;
@@ -290,8 +331,14 @@
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   padding: 0.85rem 0.9rem;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 13rem;
 }
 
 .documents-panel__header h2,
@@ -391,6 +438,11 @@
   }
 
   .upload-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-grid,
+  .note-composer__meta {
     grid-template-columns: 1fr;
   }
 

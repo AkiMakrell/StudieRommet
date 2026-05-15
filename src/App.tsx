@@ -19,6 +19,13 @@ const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
 
 const documents = [
   {
+    title: 'Seminar prep outline',
+    subject: 'Management',
+    type: 'Note',
+    meta: 'Draft saved 10 min ago',
+    tags: ['Seminar', 'Draft'],
+  },
+  {
     title: 'Elasticity lecture notes',
     subject: 'Microeconomics',
     type: 'Notes',
@@ -92,6 +99,10 @@ function App() {
         </nav>
 
         <div className="topbar-right">
+          <button className="secondary-button" type="button">
+            New note
+          </button>
+
           <button className="upload-button" type="button">
             Upload
           </button>
@@ -165,42 +176,89 @@ function App() {
             </div>
 
             <div className="library-grid">
-              <section className="upload-panel">
-                <div className="dropzone">
-                  <p className="dropzone-title">Drop files here</p>
-                  <button className="secondary-button" type="button">
-                    Choose files
-                  </button>
-                </div>
+              <div className="capture-grid">
+                <section className="upload-panel">
+                  <div className="dropzone">
+                    <p className="dropzone-title">Drop files here</p>
+                    <button className="secondary-button" type="button">
+                      Choose files
+                    </button>
+                  </div>
 
-                <div className="upload-meta">
-                  <label className="field">
-                    <span>Subject</span>
-                    <select defaultValue="Microeconomics">
-                      {subjects.map((subject) => (
-                        <option key={subject.name} value={subject.name}>
-                          {subject.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="upload-meta">
+                    <label className="field">
+                      <span>Subject</span>
+                      <select defaultValue="Microeconomics">
+                        {subjects.map((subject) => (
+                          <option key={subject.name} value={subject.name}>
+                            {subject.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-                  <label className="field">
-                    <span>Type</span>
-                    <select defaultValue="Notes">
-                      <option>Notes</option>
-                      <option>Lecture</option>
-                      <option>Assignment</option>
-                      <option>Reading</option>
-                    </select>
-                  </label>
+                    <label className="field">
+                      <span>Type</span>
+                      <select defaultValue="Notes">
+                        <option>Notes</option>
+                        <option>Lecture</option>
+                        <option>Assignment</option>
+                        <option>Reading</option>
+                      </select>
+                    </label>
 
-                  <label className="field">
-                    <span>Tags</span>
-                    <input type="text" placeholder="Week 4, formulas" />
-                  </label>
-                </div>
-              </section>
+                    <label className="field">
+                      <span>Tags</span>
+                      <input type="text" placeholder="Week 4, formulas" />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="note-composer" aria-labelledby="note-composer-title">
+                  <div className="note-composer__header">
+                    <div>
+                      <p className="eyebrow">Quick note</p>
+                      <h2 id="note-composer-title">Write inside StudieRommet</h2>
+                    </div>
+                    <button className="secondary-button" type="button">
+                      Save draft
+                    </button>
+                  </div>
+
+                  <div className="note-composer__body">
+                    <label className="field">
+                      <span>Title</span>
+                      <input type="text" placeholder="Lecture recap" />
+                    </label>
+
+                    <div className="note-composer__meta">
+                      <label className="field">
+                        <span>Subject</span>
+                        <select defaultValue="Management">
+                          {subjects.map((subject) => (
+                            <option key={subject.name} value={subject.name}>
+                              {subject.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="field">
+                        <span>Tags</span>
+                        <input type="text" placeholder="Week 5, summary" />
+                      </label>
+                    </div>
+
+                    <label className="field">
+                      <span>Note</span>
+                      <textarea
+                        rows={10}
+                        placeholder="Write key ideas, formulas, and reminders here"
+                      />
+                    </label>
+                  </div>
+                </section>
+              </div>
 
               <section className="documents-panel" aria-labelledby="document-list-title">
                 <div className="documents-panel__header">
