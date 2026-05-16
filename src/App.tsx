@@ -1331,6 +1331,15 @@ function App() {
               </button>
             </div>
 
+            {isPlannerSelecting || plannerSelectionMessage ? (
+              <div className="planner-selection-bar">
+                <span className="planner-selection-bar__text">
+                  {plannerSelectionMessage ||
+                    'Click and release the timeline to choose start and end time of the session'}
+                </span>
+              </div>
+            ) : null}
+
             <div className="planner-timeline-shell">
               <div className="planner-timeline">
                 <div className="planner-hours" aria-hidden="true">
@@ -1417,14 +1426,6 @@ function App() {
                 </div>
               </div>
             </div>
-
-            {isPlannerSelecting || plannerSelectionMessage ? (
-              <div className="planner-selection-bar">
-                <span className="planner-selection-bar__text">
-                  {plannerSelectionMessage || 'Release to choose a time.'}
-                </span>
-              </div>
-            ) : null}
 
             {isPlannerSetupOpen ? (
               <div className="upload-dialog-backdrop">
