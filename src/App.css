@@ -219,13 +219,13 @@
   min-height: 18rem;
   border-right: 1px solid var(--line);
   border-style: dashed;
-  border-color: var(--line);
+  border-color: rgba(111, 29, 58, 0.45);
   text-align: center;
 }
 
 .dropzone.is-active {
   background: rgba(111, 29, 58, 0.08);
-  border-color: rgba(111, 29, 58, 0.45);
+  border-color: var(--burgundy);
 }
 
 .dropzone-title {
