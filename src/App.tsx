@@ -223,6 +223,17 @@ async function deleteFileFromDrive(accessToken: string, fileId: string) {
   }
 }
 
+function formatDriveMeta(createdTime?: string) {
+  if (!createdTime) {
+    return 'Saved in Google Drive'
+  }
+
+  return `Uploaded ${new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(createdTime))}`
+}
+
 function App() {
   const [now, setNow] = useState(getNow)
   const [currentView, setCurrentView] = useState<CurrentView>('library')
@@ -276,6 +287,59 @@ function App() {
     [now],
   )
 
+  const loadDriveDocuments = useCallback(async (tokenOverride?: string) => {
+    const token = tokenOverride ?? accessTokenRef.current
+
+    if (!token) {
+      return
+    }
+
+    try {
+      const folderId = await ensureDriveFolder(token)
+      const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
+
+      const response = await driveRequest<{
+        files: Array<{
+          id: string
+          name: string
+          webViewLink?: string
+          createdTime?: string
+          appProperties?: {
+            subject?: string
+            type?: string
+            tags?: string
+          }
+        }>
+      }>(
+        token,
+        `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,webViewLink,createdTime,appProperties)&orderBy=createdTime desc`,
+      )
+
+      const nextDocuments = response.files.map((file) => ({
+        id: file.id,
+        title: file.name,
+        subject: file.appProperties?.subject || 'Unsorted',
+        type: file.appProperties?.type || 'File',
+        meta: formatDriveMeta(file.createdTime),
+        tags: parseTags(file.appProperties?.tags || ''),
+        link: file.webViewLink,
+      }))
+
+      setDocuments(nextDocuments)
+      setStatusMessage(
+        nextDocuments.length > 0
+          ? `Google Drive connected. ${nextDocuments.length} file${nextDocuments.length > 1 ? 's' : ''} loaded.`
+          : 'Google Drive connected. No files yet.',
+      )
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? `Could not load Drive files: ${error.message}`
+          : 'Could not load Drive files.',
+      )
+    }
+  }, [])
+
   const uploadFiles = useCallback(async (
     files: File[],
     tokenOverride?: string,
@@ -320,9 +384,7 @@ function App() {
 
       setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments])
       pendingFilesRef.current = []
-      setStatusMessage(
-        `${files.length} file${files.length > 1 ? 's' : ''} uploaded to Google Drive.`,
-      )
+      await loadDriveDocuments(token)
     } catch (error) {
       setStatusMessage(
         error instanceof Error
@@ -333,7 +395,7 @@ function App() {
       setIsUploading(false)
       setIsDragActive(false)
     }
-  }, [selectedSubject, selectedType, tagValue])
+  }, [loadDriveDocuments, selectedSubject, selectedType, tagValue])
 
   useEffect(() => {
     const initializeGoogle = async () => {
@@ -361,7 +423,7 @@ function App() {
 
             setAccessToken(response.access_token)
             localStorage.setItem(DRIVE_AUTO_CONNECT_KEY, 'true')
-            setStatusMessage('Google Drive connected.')
+            void loadDriveDocuments(response.access_token)
 
             if (pendingFilesRef.current.length > 0) {
               void uploadFiles(pendingFilesRef.current, response.access_token)
@@ -387,7 +449,7 @@ function App() {
     }
 
     void initializeGoogle()
-  }, [uploadFiles])
+  }, [loadDriveDocuments, uploadFiles])
 
   const connectDrive = () => {
     if (!tokenClientRef.current) {
@@ -477,10 +539,7 @@ function App() {
       setIsUploading(true)
       setStatusMessage(`Deleting ${document.title} from Google Drive...`)
       await deleteFileFromDrive(accessTokenRef.current, document.id)
-      setDocuments((currentDocuments) =>
-        currentDocuments.filter((currentDocument) => currentDocument.id !== document.id),
-      )
-      setStatusMessage(`${document.title} deleted from Google Drive.`)
+      await loadDriveDocuments(accessTokenRef.current)
     } catch (error) {
       setStatusMessage(
         error instanceof Error
