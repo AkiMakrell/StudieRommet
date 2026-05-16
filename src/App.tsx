@@ -1,4 +1,9 @@
-import type { ChangeEvent, CSSProperties, DragEvent } from 'react'
+import type {
+  ChangeEvent,
+  CSSProperties,
+  DragEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
@@ -23,6 +28,11 @@ type PendingUploadItem = {
 type PlannerSession = {
   id: string
   title: string
+  startMinutes: number
+  endMinutes: number
+}
+
+type PlannerDraftSession = {
   startMinutes: number
   endMinutes: number
 }
@@ -65,7 +75,7 @@ const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
 const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
 const PLANNER_START_HOUR = 6
 const PLANNER_END_HOUR = 22
-const SESSION_DURATION_MINUTES = 60
+const PLANNER_STEP_MINUTES = 5
 
 const navItems: Array<{ label: string; view?: CurrentView }> = [
   { label: 'Dashboard' },
@@ -185,14 +195,6 @@ function formatTimelineTime(totalMinutes: number) {
   }).format(new Date(2024, 0, 1, hours, minutes))
 }
 
-function roundUpToHour(totalMinutes: number) {
-  return Math.ceil(totalMinutes / 60) * 60
-}
-
-function clampMinutes(totalMinutes: number, minMinutes: number, maxMinutes: number) {
-  return Math.min(Math.max(totalMinutes, minMinutes), maxMinutes)
-}
-
 function hasPlannerOverlap(
   sessions: PlannerSession[],
   startMinutes: number,
@@ -202,32 +204,6 @@ function hasPlannerOverlap(
     (session) =>
       startMinutes < session.endMinutes && endMinutes > session.startMinutes,
   )
-}
-
-function formatTimeInput(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-}
-
-function parseTimeInput(value: string) {
-  const [hoursValue, minutesValue] = value.split(':')
-  const hours = Number(hoursValue)
-  const minutes = Number(minutesValue)
-
-  if (
-    Number.isNaN(hours) ||
-    Number.isNaN(minutes) ||
-    hours < 0 ||
-    hours > 23 ||
-    minutes < 0 ||
-    minutes > 59
-  ) {
-    return null
-  }
-
-  return hours * 60 + minutes
 }
 
 async function loadGoogleIdentityScript() {
@@ -407,10 +383,9 @@ function App() {
   const [pendingUploads, setPendingUploads] = useState<PendingUploadItem[]>([])
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
   const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>([])
-  const [isPlannerDialogOpen, setIsPlannerDialogOpen] = useState(false)
-  const [plannerSessionStart, setPlannerSessionStart] = useState('09:00')
-  const [plannerSessionEnd, setPlannerSessionEnd] = useState('10:00')
-  const [plannerDialogError, setPlannerDialogError] = useState('')
+  const [isPlannerSelecting, setIsPlannerSelecting] = useState(false)
+  const [plannerDraftSession, setPlannerDraftSession] = useState<PlannerDraftSession | null>(null)
+  const [plannerSelectionMessage, setPlannerSelectionMessage] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Connect Google Drive to upload files across devices.',
@@ -423,6 +398,8 @@ function App() {
   const accessTokenRef = useRef<string | null>(null)
   const pendingUploadsRef = useRef<PendingUploadItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const plannerTrackRef = useRef<HTMLDivElement>(null)
+  const plannerSelectionAnchorRef = useRef<number | null>(null)
   const authModeRef = useRef<'manual' | 'auto'>('manual')
   const authTimeoutRef = useRef<number | null>(null)
 
@@ -487,9 +464,6 @@ function App() {
 
     return ((nowInMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
   }, [now, plannerEndMinutes, plannerStartMinutes, plannerTotalMinutes])
-
-  const plannerTimeMin = formatTimeInput(plannerStartMinutes)
-  const plannerTimeMax = formatTimeInput(plannerEndMinutes)
 
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
@@ -859,49 +833,120 @@ function App() {
     }
   }
 
-  const handleOpenPlannerDialog = () => {
-    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
-    const latestStart = plannerEndMinutes - SESSION_DURATION_MINUTES
-    const suggestedStart = clampMinutes(
-      Math.max(plannerStartMinutes, roundUpToHour(nowInMinutes)),
-      plannerStartMinutes,
-      latestStart,
-    )
+  const getPlannerSlotMinutes = useCallback(
+    (clientX: number) => {
+      const track = plannerTrackRef.current
 
-    setPlannerSessionStart(formatTimeInput(suggestedStart))
-    setPlannerSessionEnd(formatTimeInput(suggestedStart + SESSION_DURATION_MINUTES))
-    setPlannerDialogError('')
-    setIsPlannerDialogOpen(true)
+      if (!track) {
+        return null
+      }
+
+      const rect = track.getBoundingClientRect()
+
+      if (rect.width === 0) {
+        return null
+      }
+
+      const clampedOffset = Math.min(Math.max(clientX - rect.left, 0), rect.width)
+      const totalSlots = plannerTotalMinutes / PLANNER_STEP_MINUTES
+      const rawSlot = Math.floor((clampedOffset / rect.width) * totalSlots)
+      const slotIndex = Math.min(Math.max(rawSlot, 0), totalSlots - 1)
+
+      return plannerStartMinutes + slotIndex * PLANNER_STEP_MINUTES
+    },
+    [plannerStartMinutes, plannerTotalMinutes],
+  )
+
+  const getPlannerDraftFromMinutes = useCallback((anchorMinutes: number, currentMinutes: number) => {
+    const startMinutes = Math.min(anchorMinutes, currentMinutes)
+    const endMinutes = Math.max(anchorMinutes, currentMinutes) + PLANNER_STEP_MINUTES
+
+    return { startMinutes, endMinutes }
+  }, [])
+
+  const handleTogglePlannerSelection = () => {
+    setIsPlannerSelecting((currentValue) => {
+      const nextValue = !currentValue
+
+      if (!nextValue) {
+        plannerSelectionAnchorRef.current = null
+        setPlannerDraftSession(null)
+      }
+
+      setPlannerSelectionMessage('')
+      return nextValue
+    })
   }
 
-  const handleClosePlannerDialog = () => {
-    setIsPlannerDialogOpen(false)
-    setPlannerDialogError('')
-  }
-
-  const handleCreatePlannerSession = () => {
-    const startMinutes = parseTimeInput(plannerSessionStart)
-    const endMinutes = parseTimeInput(plannerSessionEnd)
-
-    if (startMinutes === null || endMinutes === null) {
-      setPlannerDialogError('Enter valid times.')
+  const handlePlannerTrackPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isPlannerSelecting || event.button !== 0) {
       return
     }
 
-    if (startMinutes < plannerStartMinutes || endMinutes > plannerEndMinutes) {
-      setPlannerDialogError(
-        `${plannerTimeMin} to ${plannerTimeMax} only.`,
+    if ((event.target as HTMLElement).closest('.planner-session')) {
+      return
+    }
+
+    const slotMinutes = getPlannerSlotMinutes(event.clientX)
+
+    if (slotMinutes === null) {
+      return
+    }
+
+    plannerSelectionAnchorRef.current = slotMinutes
+    setPlannerDraftSession({
+      startMinutes: slotMinutes,
+      endMinutes: slotMinutes + PLANNER_STEP_MINUTES,
+    })
+    setPlannerSelectionMessage('')
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePlannerTrackPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const anchorMinutes = plannerSelectionAnchorRef.current
+
+    if (anchorMinutes === null) {
+      return
+    }
+
+    const slotMinutes = getPlannerSlotMinutes(event.clientX)
+
+    if (slotMinutes === null) {
+      return
+    }
+
+    setPlannerDraftSession(getPlannerDraftFromMinutes(anchorMinutes, slotMinutes))
+  }
+
+  const handlePlannerTrackPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const anchorMinutes = plannerSelectionAnchorRef.current
+
+    if (anchorMinutes === null) {
+      return
+    }
+
+    const slotMinutes = getPlannerSlotMinutes(event.clientX)
+    const nextDraftSession =
+      slotMinutes === null
+        ? plannerDraftSession
+        : getPlannerDraftFromMinutes(anchorMinutes, slotMinutes)
+
+    plannerSelectionAnchorRef.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+
+    if (!nextDraftSession) {
+      return
+    }
+
+    if (
+      hasPlannerOverlap(
+        plannerSessions,
+        nextDraftSession.startMinutes,
+        nextDraftSession.endMinutes,
       )
-      return
-    }
-
-    if (endMinutes <= startMinutes) {
-      setPlannerDialogError('End time must be after start time.')
-      return
-    }
-
-    if (hasPlannerOverlap(plannerSessions, startMinutes, endMinutes)) {
-      setPlannerDialogError('This overlaps another session.')
+    ) {
+      setPlannerDraftSession(null)
+      setPlannerSelectionMessage('This overlaps another session.')
       return
     }
 
@@ -911,14 +956,14 @@ function App() {
         {
           id: `session-${Date.now()}`,
           title: `Session ${currentSessions.length + 1}`,
-          startMinutes,
-          endMinutes,
+          startMinutes: nextDraftSession.startMinutes,
+          endMinutes: nextDraftSession.endMinutes,
         },
-      ].sort(
-        (left, right) => left.startMinutes - right.startMinutes,
-      ),
+      ].sort((left, right) => left.startMinutes - right.startMinutes),
     )
-    handleClosePlannerDialog()
+    setPlannerDraftSession(null)
+    setPlannerSelectionMessage('')
+    setIsPlannerSelecting(false)
   }
 
   const uploadButtonLabel = accessToken
@@ -1238,9 +1283,9 @@ function App() {
               <button
                 className="upload-button"
                 type="button"
-                onClick={handleOpenPlannerDialog}
+                onClick={handleTogglePlannerSelection}
               >
-                Add session
+                {isPlannerSelecting ? 'Cancel' : 'Add session'}
               </button>
             </div>
 
@@ -1254,8 +1299,20 @@ function App() {
                   ))}
                 </div>
 
-                <div className="planner-track">
-                  <div className="planner-track__lane" />
+                <div
+                  ref={plannerTrackRef}
+                  className={isPlannerSelecting ? 'planner-track is-selecting' : 'planner-track'}
+                  onPointerDown={handlePlannerTrackPointerDown}
+                  onPointerMove={handlePlannerTrackPointerMove}
+                  onPointerUp={handlePlannerTrackPointerUp}
+                >
+                  <div
+                    className={
+                      isPlannerSelecting
+                        ? 'planner-track__lane is-selecting'
+                        : 'planner-track__lane'
+                    }
+                  />
 
                   {plannerSessions.map((session) => {
                     const left = ((session.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
@@ -1274,8 +1331,24 @@ function App() {
                           {formatTimelineTime(session.endMinutes)}
                         </span>
                       </article>
-                    )
+                      )
                   })}
+
+                  {plannerDraftSession ? (
+                    <article
+                      className="planner-session planner-session--draft"
+                      style={{
+                        left: `${((plannerDraftSession.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100}%`,
+                        width: `${((plannerDraftSession.endMinutes - plannerDraftSession.startMinutes) / plannerTotalMinutes) * 100}%`,
+                      }}
+                    >
+                      <strong>New session</strong>
+                      <span>
+                        {formatTimelineTime(plannerDraftSession.startMinutes)} -{' '}
+                        {formatTimelineTime(plannerDraftSession.endMinutes)}
+                      </span>
+                    </article>
+                  ) : null}
 
                   {nowMarkerOffset !== null ? (
                     <div
@@ -1290,57 +1363,11 @@ function App() {
               </div>
             </div>
 
-            {isPlannerDialogOpen ? (
-              <div className="upload-dialog-backdrop">
-                <section className="upload-dialog planner-dialog" aria-labelledby="planner-dialog-title">
-                  <div className="upload-dialog__header">
-                    <div>
-                      <p className="eyebrow">Planner</p>
-                      <h2 id="planner-dialog-title">Add session</h2>
-                    </div>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={handleClosePlannerDialog}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-
-                  <div className="upload-dialog__form planner-dialog__form">
-                    <label className="field">
-                      <span>Start</span>
-                      <input
-                        type="time"
-                        min={plannerTimeMin}
-                        max={plannerTimeMax}
-                        value={plannerSessionStart}
-                        onChange={(event) => setPlannerSessionStart(event.target.value)}
-                      />
-                    </label>
-
-                    <label className="field">
-                      <span>End</span>
-                      <input
-                        type="time"
-                        min={plannerTimeMin}
-                        max={plannerTimeMax}
-                        value={plannerSessionEnd}
-                        onChange={(event) => setPlannerSessionEnd(event.target.value)}
-                      />
-                    </label>
-
-                    {plannerDialogError ? (
-                      <p className="planner-dialog__error">{plannerDialogError}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="upload-dialog__actions">
-                    <button className="upload-button" type="button" onClick={handleCreatePlannerSession}>
-                      Save session
-                    </button>
-                  </div>
-                </section>
+            {isPlannerSelecting || plannerSelectionMessage ? (
+              <div className="planner-selection-bar">
+                <span className="planner-selection-bar__text">
+                  {plannerSelectionMessage || 'Click and drag on the timeline.'}
+                </span>
               </div>
             ) : null}
           </section>

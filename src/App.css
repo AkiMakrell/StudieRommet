@@ -312,6 +312,10 @@
   min-height: 12rem;
 }
 
+.planner-track.is-selecting {
+  cursor: crosshair;
+}
+
 .planner-track__lane {
   position: absolute;
   inset: 2.25rem 0 2rem;
@@ -324,6 +328,18 @@
       transparent calc((100% / 16) - 1px),
       rgba(104, 86, 78, 0.08) calc((100% / 16) - 1px),
       rgba(104, 86, 78, 0.08) calc(100% / 16)
+    );
+}
+
+.planner-track__lane.is-selecting {
+  border-color: rgba(111, 29, 58, 0.34);
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent,
+      transparent calc((100% / 16) - 1px),
+      rgba(111, 29, 58, 0.12) calc((100% / 16) - 1px),
+      rgba(111, 29, 58, 0.12) calc(100% / 16)
     );
 }
 
@@ -359,6 +375,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+.planner-session--draft {
+  border-style: dashed;
+  background: rgba(111, 29, 58, 0.16);
+  pointer-events: none;
+}
+
 .planner-now {
   position: absolute;
   top: 0;
@@ -379,19 +401,14 @@
   font-variant-numeric: tabular-nums;
 }
 
-.planner-dialog {
-  width: min(100%, 28rem);
+.planner-selection-bar {
+  padding: 0 1.5rem;
 }
 
-.planner-dialog__form {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.planner-dialog__error {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--burgundy);
-  font-size: 0.88rem;
+.planner-selection-bar__text {
+  display: inline-flex;
+  color: var(--mole);
+  font-size: 0.9rem;
 }
 
 .note-page__header {
@@ -675,10 +692,6 @@
 
   .planner-timeline {
     min-width: 46rem;
-  }
-
-  .planner-dialog__form {
-    grid-template-columns: 1fr;
   }
 
   .dropzone {
