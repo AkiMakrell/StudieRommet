@@ -23,6 +23,10 @@ type TokenClient = {
   requestAccessToken: (overrideConfig?: { prompt?: string }) => void
 }
 
+type TokenErrorResponse = {
+  type?: string
+}
+
 declare global {
   interface Window {
     google?: {
@@ -32,6 +36,7 @@ declare global {
             client_id: string
             scope: string
             callback: (response: TokenResponse) => void
+            error_callback?: (error: TokenErrorResponse) => void
           }) => TokenClient
         }
       }
@@ -254,6 +259,7 @@ function App() {
   const pendingFilesRef = useRef<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const authModeRef = useRef<'manual' | 'auto'>('manual')
+  const authTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     accessTokenRef.current = accessToken
@@ -285,6 +291,49 @@ function App() {
         minute: '2-digit',
       }).format(now),
     [now],
+  )
+
+  const clearAuthTimeout = useCallback(() => {
+    if (authTimeoutRef.current !== null) {
+      window.clearTimeout(authTimeoutRef.current)
+      authTimeoutRef.current = null
+    }
+  }, [])
+
+  const startAuthRequest = useCallback(
+    (mode: 'manual' | 'auto', prompt: string) => {
+      if (!tokenClientRef.current) {
+        setStatusMessage('Google Drive sign-in is still loading.')
+        return
+      }
+
+      authModeRef.current = mode
+      clearAuthTimeout()
+      setIsAuthenticating(true)
+      setStatusMessage(
+        mode === 'auto'
+          ? 'Reconnecting to Google Drive...'
+          : 'Connecting to Google Drive...',
+      )
+
+      authTimeoutRef.current = window.setTimeout(() => {
+        setIsAuthenticating(false)
+        setStatusMessage(
+          mode === 'auto'
+            ? 'Connect Google Drive to upload files across devices.'
+            : 'Google Drive sign-in timed out. Try again.',
+        )
+      }, mode === 'auto' ? 8000 : 60000)
+
+      try {
+        tokenClientRef.current.requestAccessToken({ prompt })
+      } catch {
+        clearAuthTimeout()
+        setIsAuthenticating(false)
+        setStatusMessage('Google Drive sign-in could not start.')
+      }
+    },
+    [clearAuthTimeout],
   )
 
   const loadDriveDocuments = useCallback(async (tokenOverride?: string) => {
@@ -410,6 +459,7 @@ function App() {
           client_id: GOOGLE_CLIENT_ID,
           scope: DRIVE_SCOPE,
           callback: (response) => {
+            clearAuthTimeout()
             setIsAuthenticating(false)
 
             if (response.error || !response.access_token) {
@@ -429,15 +479,19 @@ function App() {
               void uploadFiles(pendingFilesRef.current, response.access_token)
             }
           },
+          error_callback: () => {
+            clearAuthTimeout()
+            setIsAuthenticating(false)
+            setStatusMessage(
+              authModeRef.current === 'auto'
+                ? 'Connect Google Drive to upload files across devices.'
+                : 'Google Drive sign-in did not complete.',
+            )
+          },
         })
 
         if (localStorage.getItem(DRIVE_AUTO_CONNECT_KEY) === 'true') {
-          authModeRef.current = 'auto'
-          setIsAuthenticating(true)
-          setStatusMessage('Reconnecting to Google Drive...')
-          tokenClientRef.current.requestAccessToken({
-            prompt: '',
-          })
+          startAuthRequest('auto', '')
         }
       } catch (error) {
         setStatusMessage(
@@ -449,20 +503,13 @@ function App() {
     }
 
     void initializeGoogle()
-  }, [loadDriveDocuments, uploadFiles])
+    return () => {
+      clearAuthTimeout()
+    }
+  }, [clearAuthTimeout, loadDriveDocuments, startAuthRequest, uploadFiles])
 
   const connectDrive = () => {
-    if (!tokenClientRef.current) {
-      setStatusMessage('Google Drive sign-in is still loading.')
-      return
-    }
-
-    authModeRef.current = 'manual'
-    setIsAuthenticating(true)
-    setStatusMessage('Connecting to Google Drive...')
-    tokenClientRef.current.requestAccessToken({
-      prompt: accessTokenRef.current ? '' : 'consent',
-    })
+    startAuthRequest('manual', accessTokenRef.current ? '' : 'consent')
   }
 
   const handleIncomingFiles = (files: File[]) => {
