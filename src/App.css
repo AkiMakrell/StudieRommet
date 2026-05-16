@@ -201,12 +201,10 @@
 }
 
 .upload-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.75fr);
+  display: block;
 }
 
 .dropzone,
-.upload-meta,
 .documents-panel__header,
 .document-card {
   padding: 1.25rem;
@@ -294,11 +292,6 @@
   margin-bottom: 1rem;
 }
 
-.upload-meta {
-  display: grid;
-  gap: 1rem;
-}
-
 .field {
   display: grid;
   gap: 0.45rem;
@@ -354,6 +347,61 @@
   padding: 1.5rem 0;
   color: var(--mole);
   text-align: center;
+}
+
+.upload-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(36, 27, 24, 0.28);
+  backdrop-filter: blur(6px);
+  z-index: 20;
+}
+
+.upload-dialog {
+  width: min(100%, 34rem);
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: rgba(255, 251, 248, 0.98);
+  box-shadow: 0 24px 60px rgba(42, 30, 25, 0.16);
+}
+
+.upload-dialog__header,
+.upload-dialog__form,
+.upload-dialog__actions {
+  padding: 1.25rem;
+}
+
+.upload-dialog__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.upload-dialog__header h2 {
+  margin: 0;
+}
+
+.upload-dialog__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 1rem 1.25rem 0;
+}
+
+.upload-dialog__form {
+  display: grid;
+  gap: 1rem;
+}
+
+.upload-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0;
 }
 
 .document-card {
@@ -450,7 +498,7 @@
   }
 
   .upload-panel {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .dropzone {

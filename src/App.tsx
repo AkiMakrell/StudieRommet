@@ -629,6 +629,18 @@ function App() {
     fileInputRef.current?.click()
   }
 
+  const handleClearPendingFiles = () => {
+    pendingFilesRef.current = []
+    setPendingFiles([])
+    setSelectedSubject(subjects.length > 0 ? '' : ADD_SUBJECT_VALUE)
+    setNewSubjectName('')
+    setStatusMessage(
+      accessTokenRef.current
+        ? 'Google Drive connected. Choose files to upload.'
+        : 'Connect Google Drive to upload files across devices.',
+    )
+  }
+
   const handleDeleteDocument = async (document: DocumentItem) => {
     if (!document.id) {
       setDocuments((currentDocuments) =>
@@ -782,59 +794,6 @@ function App() {
                     onChange={handleFileInputChange}
                   />
                 </div>
-
-                <div className="upload-meta">
-                  <label className="field">
-                    <span>Subject</span>
-                    <select
-                      value={selectedSubject}
-                      onChange={(event) => setSelectedSubject(event.target.value)}
-                    >
-                      {subjects.length > 0 ? <option value="">Choose subject</option> : null}
-                      {subjects.map((subject) => (
-                        <option key={subject} value={subject}>
-                          {subject}
-                        </option>
-                      ))}
-                      <option value={ADD_SUBJECT_VALUE}>Add subject</option>
-                    </select>
-                  </label>
-
-                  {selectedSubject === ADD_SUBJECT_VALUE ? (
-                    <label className="field">
-                      <span>New subject</span>
-                      <input
-                        type="text"
-                        placeholder="Add subject"
-                        value={newSubjectName}
-                        onChange={(event) => setNewSubjectName(event.target.value)}
-                      />
-                    </label>
-                  ) : null}
-
-                  <label className="field">
-                    <span>Type</span>
-                    <select
-                      value={selectedType}
-                      onChange={(event) => setSelectedType(event.target.value)}
-                    >
-                      <option>Notes</option>
-                      <option>Lecture</option>
-                      <option>Assignment</option>
-                      <option>Reading</option>
-                    </select>
-                  </label>
-
-                  <label className="field">
-                    <span>Tags</span>
-                    <input
-                      type="text"
-                      placeholder="Week 4, formulas"
-                      value={tagValue}
-                      onChange={(event) => setTagValue(event.target.value)}
-                    />
-                  </label>
-                </div>
               </section>
 
               <section className="documents-panel" aria-labelledby="document-list-title">
@@ -893,6 +852,101 @@ function App() {
                 </div>
               </section>
             </div>
+
+            {pendingFiles.length > 0 ? (
+              <div className="upload-dialog-backdrop">
+                <section className="upload-dialog" aria-labelledby="upload-dialog-title">
+                  <div className="upload-dialog__header">
+                    <div>
+                      <p className="eyebrow">Upload details</p>
+                      <h2 id="upload-dialog-title">Choose subject</h2>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={handleClearPendingFiles}
+                      disabled={isUploading}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  <div className="upload-dialog__files">
+                    {pendingFiles.map((file) => (
+                      <span key={`${file.name}-${file.lastModified}`} className="pending-file">
+                        {file.name}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="upload-dialog__form">
+                    <label className="field">
+                      <span>Subject</span>
+                      <select
+                        value={selectedSubject}
+                        onChange={(event) => setSelectedSubject(event.target.value)}
+                      >
+                        {subjects.length > 0 ? <option value="">Choose subject</option> : null}
+                        {subjects.map((subject) => (
+                          <option key={subject} value={subject}>
+                            {subject}
+                          </option>
+                        ))}
+                        <option value={ADD_SUBJECT_VALUE}>Add subject</option>
+                      </select>
+                    </label>
+
+                    {selectedSubject === ADD_SUBJECT_VALUE ? (
+                      <label className="field">
+                        <span>New subject</span>
+                        <input
+                          type="text"
+                          placeholder="Add subject"
+                          value={newSubjectName}
+                          onChange={(event) => setNewSubjectName(event.target.value)}
+                        />
+                      </label>
+                    ) : null}
+
+                    <label className="field">
+                      <span>Type</span>
+                      <select
+                        value={selectedType}
+                        onChange={(event) => setSelectedType(event.target.value)}
+                      >
+                        <option>Notes</option>
+                        <option>Lecture</option>
+                        <option>Assignment</option>
+                        <option>Reading</option>
+                      </select>
+                    </label>
+
+                    <label className="field">
+                      <span>Tags</span>
+                      <input
+                        type="text"
+                        placeholder="Week 4, formulas"
+                        value={tagValue}
+                        onChange={(event) => setTagValue(event.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="upload-dialog__actions">
+                    <button
+                      className="upload-button"
+                      type="button"
+                      onClick={handleUploadButtonClick}
+                      disabled={isUploading || isAuthenticating}
+                    >
+                      {isUploading
+                        ? 'Uploading...'
+                        : `Upload ${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''}`}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            ) : null}
           </section>
         ) : (
           <section className="note-page" aria-labelledby="note-page-title">
