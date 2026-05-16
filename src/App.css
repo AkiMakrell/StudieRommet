@@ -447,6 +447,54 @@
   font-size: 0.9rem;
 }
 
+.planner-progress {
+  margin: 1rem 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.planner-progress__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.planner-progress__header strong,
+.planner-progress__header span,
+.planner-progress__note {
+  margin: 0;
+  color: var(--ink);
+}
+
+.planner-progress__header span {
+  color: var(--mole);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.planner-progress__note {
+  margin-bottom: 0.75rem;
+  color: var(--mole);
+  font-size: 0.88rem;
+}
+
+.planner-progress__track {
+  overflow: hidden;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: rgba(104, 86, 78, 0.12);
+}
+
+.planner-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
 .planner-setup-dialog {
   width: min(100%, 32rem);
 }

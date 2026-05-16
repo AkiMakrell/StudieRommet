@@ -525,6 +525,32 @@ function App() {
     return ((nowInMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
   }, [now, plannerEndMinutes, plannerStartMinutes, plannerTotalMinutes])
 
+  const activePlannerSession = useMemo(() => {
+    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
+
+    return plannerSessions.find(
+      (session) =>
+        nowInMinutes >= session.startMinutes && nowInMinutes < session.endMinutes,
+    )
+  }, [now, plannerSessions])
+
+  const activePlannerProgress = useMemo(() => {
+    if (!activePlannerSession) {
+      return null
+    }
+
+    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
+    const totalMinutes =
+      activePlannerSession.endMinutes - activePlannerSession.startMinutes
+    const elapsedMinutes = nowInMinutes - activePlannerSession.startMinutes
+    const remainingMinutes = activePlannerSession.endMinutes - nowInMinutes
+
+    return {
+      progress: Math.min(Math.max((elapsedMinutes / totalMinutes) * 100, 0), 100),
+      remainingMinutes,
+    }
+  }, [activePlannerSession, now])
+
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
       window.clearTimeout(authTimeoutRef.current)
@@ -1506,6 +1532,29 @@ function App() {
                 </div>
               </div>
             </div>
+
+            {activePlannerSession && activePlannerProgress ? (
+              <div className="planner-progress">
+                <div className="planner-progress__header">
+                  <strong>{activePlannerSession.subject}</strong>
+                  <span>
+                    {activePlannerProgress.remainingMinutes} min left
+                  </span>
+                </div>
+                {activePlannerSession.note ? (
+                  <p className="planner-progress__note">{activePlannerSession.note}</p>
+                ) : null}
+                <div className="planner-progress__track" aria-label="Session progress">
+                  <span
+                    className="planner-progress__fill"
+                    style={{
+                      width: `${activePlannerProgress.progress}%`,
+                      backgroundColor: getSubjectTone(activePlannerSession.subject).border,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             {isPlannerSetupOpen ? (
               <div className="upload-dialog-backdrop">
