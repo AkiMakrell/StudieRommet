@@ -31,6 +31,8 @@ type PlannerSession = {
   note: string
   startMinutes: number
   endMinutes: number
+  outcome?: 'completed' | 'abandoned'
+  focusScore?: number
 }
 
 type PlannerSelectionStage = 'start' | 'end'
@@ -67,7 +69,8 @@ declare global {
 
 const GOOGLE_CLIENT_ID =
   '347804918623-t28vi7icqkvqr7f8geloto0ncogj13up.apps.googleusercontent.com'
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
+const GOOGLE_SCOPES =
+  'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
 const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
 const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
@@ -174,7 +177,14 @@ function loadStoredPlannerSessions() {
             typeof candidate.subject === 'string' &&
             typeof candidate.note === 'string' &&
             typeof candidate.startMinutes === 'number' &&
-            typeof candidate.endMinutes === 'number'
+            typeof candidate.endMinutes === 'number' &&
+            (candidate.outcome === undefined ||
+              candidate.outcome === 'completed' ||
+              candidate.outcome === 'abandoned') &&
+            (candidate.focusScore === undefined ||
+              (typeof candidate.focusScore === 'number' &&
+                candidate.focusScore >= 1 &&
+                candidate.focusScore <= 10))
           )
         })
         .sort((left, right) => left.startMinutes - right.startMinutes)
@@ -732,7 +742,7 @@ function App() {
 
         tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
-          scope: DRIVE_SCOPE,
+          scope: GOOGLE_SCOPES,
           callback: (response) => {
             clearAuthTimeout()
             setIsAuthenticating(false)
