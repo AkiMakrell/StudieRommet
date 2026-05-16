@@ -43,6 +43,7 @@ const GOOGLE_CLIENT_ID =
   '347804918623-t28vi7icqkvqr7f8geloto0ncogj13up.apps.googleusercontent.com'
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
+const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
 
 const navItems = ['Dashboard', 'Library', 'Planner', 'Sessions', 'Insights']
 
@@ -241,6 +242,7 @@ function App() {
   const accessTokenRef = useRef<string | null>(null)
   const pendingFilesRef = useRef<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const authModeRef = useRef<'manual' | 'auto'>('manual')
 
   useEffect(() => {
     accessTokenRef.current = accessToken
@@ -349,11 +351,16 @@ function App() {
             setIsAuthenticating(false)
 
             if (response.error || !response.access_token) {
-              setStatusMessage('Google Drive sign-in did not complete.')
+              if (authModeRef.current === 'manual') {
+                setStatusMessage('Google Drive sign-in did not complete.')
+              } else {
+                setStatusMessage('Connect Google Drive to upload files across devices.')
+              }
               return
             }
 
             setAccessToken(response.access_token)
+            localStorage.setItem(DRIVE_AUTO_CONNECT_KEY, 'true')
             setStatusMessage('Google Drive connected.')
 
             if (pendingFilesRef.current.length > 0) {
@@ -361,6 +368,15 @@ function App() {
             }
           },
         })
+
+        if (localStorage.getItem(DRIVE_AUTO_CONNECT_KEY) === 'true') {
+          authModeRef.current = 'auto'
+          setIsAuthenticating(true)
+          setStatusMessage('Reconnecting to Google Drive...')
+          tokenClientRef.current.requestAccessToken({
+            prompt: '',
+          })
+        }
       } catch (error) {
         setStatusMessage(
           error instanceof Error
@@ -379,6 +395,7 @@ function App() {
       return
     }
 
+    authModeRef.current = 'manual'
     setIsAuthenticating(true)
     setStatusMessage('Connecting to Google Drive...')
     tokenClientRef.current.requestAccessToken({
