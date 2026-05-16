@@ -395,10 +395,19 @@
 }
 
 .upload-dialog__files {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
+  display: grid;
+  gap: 1rem;
   padding: 1rem 1.25rem 0;
+}
+
+.upload-dialog__file-item {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.upload-dialog__file-original {
+  color: var(--mole);
+  font-size: 0.82rem;
 }
 
 .upload-dialog__form {

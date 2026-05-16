@@ -14,6 +14,12 @@ type DocumentItem = {
   link?: string
 }
 
+type PendingUploadItem = {
+  key: string
+  file: File
+  displayName: string
+}
+
 type TokenResponse = {
   access_token?: string
   error?: string
@@ -96,6 +102,18 @@ function loadStoredSubjects() {
   }
 
   return []
+}
+
+function createPendingUploadKey(file: File) {
+  return `${file.name}-${file.lastModified}-${file.size}`
+}
+
+function createPendingUploadItems(files: File[]) {
+  return files.map((file) => ({
+    key: createPendingUploadKey(file),
+    file,
+    displayName: file.name,
+  }))
 }
 
 async function loadGoogleIdentityScript() {
@@ -201,6 +219,7 @@ async function uploadFileToDrive(
   subject: string,
   type: string,
   tags: string[],
+  displayName: string,
 ) {
   const formData = new FormData()
 
@@ -215,6 +234,7 @@ async function uploadFileToDrive(
             subject,
             type,
             tags: tags.join(', '),
+            displayName,
           },
         }),
       ],
@@ -270,7 +290,7 @@ function App() {
   const [uploadSubjectInput, setUploadSubjectInput] = useState('')
   const [selectedType, setSelectedType] = useState('Notes')
   const [tagValue, setTagValue] = useState('')
-  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [pendingUploads, setPendingUploads] = useState<PendingUploadItem[]>([])
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
@@ -282,7 +302,7 @@ function App() {
 
   const tokenClientRef = useRef<TokenClient | null>(null)
   const accessTokenRef = useRef<string | null>(null)
-  const pendingFilesRef = useRef<File[]>([])
+  const pendingUploadsRef = useRef<PendingUploadItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const authModeRef = useRef<'manual' | 'auto'>('manual')
   const authTimeoutRef = useRef<number | null>(null)
@@ -351,6 +371,7 @@ function App() {
             subject?: string
             type?: string
             tags?: string
+            displayName?: string
           }
         }>
       }>(
@@ -360,7 +381,7 @@ function App() {
 
       const nextDocuments = response.files.map((file) => ({
         id: file.id,
-        title: file.name,
+        title: file.appProperties?.displayName?.trim() || file.name,
         subject: file.appProperties?.subject || 'Unsorted',
         type: file.appProperties?.type || 'File',
         meta: formatDriveMeta(file.createdTime),
@@ -392,24 +413,28 @@ function App() {
   }, [])
 
   const uploadFiles = useCallback(
-    async (files: File[], subjectName: string, tokenOverride?: string): Promise<void> => {
+    async (
+      uploads: PendingUploadItem[],
+      subjectName: string,
+      tokenOverride?: string,
+    ): Promise<void> => {
       const token = tokenOverride ?? accessTokenRef.current
 
-      if (!token || files.length === 0 || !subjectName) {
+      if (!token || uploads.length === 0 || !subjectName) {
         return
       }
 
       try {
         setIsUploading(true)
         setStatusMessage(
-          `Uploading ${files.length} file${files.length > 1 ? 's' : ''} to Google Drive...`,
+          `Uploading ${uploads.length} file${uploads.length > 1 ? 's' : ''} to Google Drive...`,
         )
 
         const folderId = await ensureDriveFolder(token)
         const tags = parseTags(tagValue)
 
         const uploadedDocuments = await Promise.all(
-          files.map(async (file) => {
+          uploads.map(async ({ file, displayName }) => {
             const uploadedFile = await uploadFileToDrive(
               token,
               file,
@@ -417,11 +442,12 @@ function App() {
               subjectName,
               selectedType,
               tags,
+              displayName.trim() || file.name,
             )
 
             return {
               id: uploadedFile.id,
-              title: uploadedFile.name,
+              title: displayName.trim() || uploadedFile.name,
               subject: subjectName,
               type: selectedType,
               meta: 'Uploaded just now',
@@ -433,8 +459,8 @@ function App() {
 
         setSubjects((currentSubjects) => mergeSubjects(currentSubjects, [subjectName]))
         setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments])
-        pendingFilesRef.current = []
-        setPendingFiles([])
+        pendingUploadsRef.current = []
+        setPendingUploads([])
         setUploadSubjectInput(subjectName)
         await loadDriveDocuments(token)
       } catch (error) {
@@ -516,8 +542,8 @@ function App() {
             localStorage.setItem(DRIVE_AUTO_CONNECT_KEY, 'true')
             void loadDriveDocuments(response.access_token)
 
-            if (pendingFilesRef.current.length > 0) {
-              setStatusMessage('Choose a subject, then upload your file.')
+            if (pendingUploadsRef.current.length > 0) {
+              setStatusMessage('Choose a subject and name, then upload your file.')
             }
           },
           error_callback: () => {
@@ -558,11 +584,12 @@ function App() {
       return
     }
 
-    pendingFilesRef.current = files
-    setPendingFiles(files)
+    const nextPendingUploads = createPendingUploadItems(files)
+    pendingUploadsRef.current = nextPendingUploads
+    setPendingUploads(nextPendingUploads)
 
     if (accessTokenRef.current) {
-      setStatusMessage('Choose a subject, then upload your file.')
+      setStatusMessage('Choose a subject and name, then upload your file.')
       return
     }
 
@@ -579,6 +606,17 @@ function App() {
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     handleIncomingFiles(Array.from(event.dataTransfer.files))
+  }
+
+  const handlePendingUploadNameChange = (key: string, value: string) => {
+    setPendingUploads((currentUploads) => {
+      const nextUploads = currentUploads.map((upload) =>
+        upload.key === key ? { ...upload, displayName: value } : upload,
+      )
+
+      pendingUploadsRef.current = nextUploads
+      return nextUploads
+    })
   }
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -602,7 +640,7 @@ function App() {
       return
     }
 
-    if (pendingFilesRef.current.length > 0) {
+    if (pendingUploadsRef.current.length > 0) {
       const resolvedSubject = uploadSubjectInput.trim()
 
       if (!resolvedSubject) {
@@ -610,7 +648,16 @@ function App() {
         return
       }
 
-      void uploadFiles(pendingFilesRef.current, resolvedSubject)
+      const hasEmptyName = pendingUploadsRef.current.some(
+        ({ displayName }) => displayName.trim().length === 0,
+      )
+
+      if (hasEmptyName) {
+        setStatusMessage('Add a name for every file before uploading.')
+        return
+      }
+
+      void uploadFiles(pendingUploadsRef.current, resolvedSubject)
       return
     }
 
@@ -618,8 +665,8 @@ function App() {
   }
 
   const handleClearPendingFiles = () => {
-    pendingFilesRef.current = []
-    setPendingFiles([])
+    pendingUploadsRef.current = []
+    setPendingUploads([])
     setUploadSubjectInput('')
     setStatusMessage(
       accessTokenRef.current
@@ -665,8 +712,8 @@ function App() {
   }
 
   const uploadButtonLabel = accessToken
-    ? pendingFiles.length > 0
-      ? `Upload ${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''}`
+    ? pendingUploads.length > 0
+      ? `Upload ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}`
       : 'Choose files'
     : 'Connect Drive'
 
@@ -733,11 +780,11 @@ function App() {
                 >
                   <p className="dropzone-title">Drop files here</p>
                   <p className="dropzone-copy">{statusMessage}</p>
-                  {pendingFiles.length > 0 ? (
+                  {pendingUploads.length > 0 ? (
                     <div className="pending-files">
-                      {pendingFiles.map((file) => (
-                        <span key={`${file.name}-${file.lastModified}`} className="pending-file">
-                          {file.name}
+                      {pendingUploads.map((upload) => (
+                        <span key={upload.key} className="pending-file">
+                          {upload.displayName || upload.file.name}
                         </span>
                       ))}
                     </div>
@@ -842,13 +889,13 @@ function App() {
               </section>
             </div>
 
-            {pendingFiles.length > 0 ? (
+            {pendingUploads.length > 0 ? (
               <div className="upload-dialog-backdrop">
                 <section className="upload-dialog" aria-labelledby="upload-dialog-title">
                   <div className="upload-dialog__header">
                     <div>
                       <p className="eyebrow">Upload details</p>
-                      <h2 id="upload-dialog-title">Choose subject</h2>
+                      <h2 id="upload-dialog-title">Review files</h2>
                     </div>
                     <button
                       className="secondary-button"
@@ -861,10 +908,20 @@ function App() {
                   </div>
 
                   <div className="upload-dialog__files">
-                    {pendingFiles.map((file) => (
-                      <span key={`${file.name}-${file.lastModified}`} className="pending-file">
-                        {file.name}
-                      </span>
+                    {pendingUploads.map((upload) => (
+                      <div key={upload.key} className="upload-dialog__file-item">
+                        <label className="field">
+                          <span>Name</span>
+                          <input
+                            type="text"
+                            value={upload.displayName}
+                            onChange={(event) =>
+                              handlePendingUploadNameChange(upload.key, event.target.value)
+                            }
+                          />
+                        </label>
+                        <span className="upload-dialog__file-original">{upload.file.name}</span>
+                      </div>
                     ))}
                   </div>
 
@@ -915,7 +972,7 @@ function App() {
                     >
                       {isUploading
                         ? 'Uploading...'
-                        : `Upload ${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''}`}
+                        : `Upload ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}`}
                     </button>
                   </div>
                 </section>
