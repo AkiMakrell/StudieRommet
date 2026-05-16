@@ -963,14 +963,6 @@ function App() {
 
         <div className="topbar-right">
           <button
-            className="secondary-button"
-            type="button"
-            onClick={() => setCurrentView('note')}
-          >
-            New note
-          </button>
-
-          <button
             className="upload-button"
             type="button"
             onClick={handleUploadButtonClick}
@@ -993,6 +985,14 @@ function App() {
                 <p className="eyebrow">Library</p>
                 <h1 id="dashboard-title">Notes and documents</h1>
               </div>
+
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setCurrentView('note')}
+              >
+                New note
+              </button>
             </div>
 
             <div className="library-grid">
