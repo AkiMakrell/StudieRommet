@@ -32,11 +32,6 @@ type PlannerSession = {
   endMinutes: number
 }
 
-type PlannerDraftSession = {
-  startMinutes: number
-  endMinutes: number
-}
-
 type PlannerSelectionStage = 'start' | 'end'
 
 type TokenResponse = {
@@ -390,7 +385,7 @@ function App() {
     useState<PlannerSelectionStage>('start')
   const [plannerSelectionStartMinutes, setPlannerSelectionStartMinutes] =
     useState<number | null>(null)
-  const [plannerDraftSession, setPlannerDraftSession] = useState<PlannerDraftSession | null>(null)
+  const [plannerPreviewMinutes, setPlannerPreviewMinutes] = useState<number | null>(null)
   const [plannerSelectionMessage, setPlannerSelectionMessage] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
@@ -863,13 +858,6 @@ function App() {
     [plannerStartMinutes, plannerTotalMinutes],
   )
 
-  const getPlannerDraftFromMinutes = useCallback((anchorMinutes: number, currentMinutes: number) => {
-    const startMinutes = Math.min(anchorMinutes, currentMinutes)
-    const endMinutes = Math.max(anchorMinutes, currentMinutes) + PLANNER_STEP_MINUTES
-
-    return { startMinutes, endMinutes }
-  }, [])
-
   const handleTogglePlannerSelection = () => {
     setIsPlannerSelecting((currentValue) => {
       const nextValue = !currentValue
@@ -878,11 +866,11 @@ function App() {
         plannerPointerDownRef.current = false
         setPlannerSelectionStage('start')
         setPlannerSelectionStartMinutes(null)
-        setPlannerDraftSession(null)
+        setPlannerPreviewMinutes(null)
         setPlannerSelectionMessage('Release to set the start time.')
       } else {
         plannerPointerDownRef.current = false
-        setPlannerDraftSession(null)
+        setPlannerPreviewMinutes(null)
         setPlannerSelectionStage('start')
         setPlannerSelectionStartMinutes(null)
         setPlannerSelectionMessage('')
@@ -899,16 +887,20 @@ function App() {
     if ((event.target as HTMLElement).closest('.planner-session')) {
       return
     }
+
+    const slotMinutes = getPlannerSlotMinutes(event.clientX)
+
+    if (slotMinutes === null) {
+      return
+    }
+
     plannerPointerDownRef.current = true
+    setPlannerPreviewMinutes(slotMinutes)
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
   const handlePlannerTrackPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (
-      !plannerPointerDownRef.current ||
-      plannerSelectionStage !== 'end' ||
-      plannerSelectionStartMinutes === null
-    ) {
+    if (!plannerPointerDownRef.current) {
       return
     }
 
@@ -918,7 +910,7 @@ function App() {
       return
     }
 
-    setPlannerDraftSession(getPlannerDraftFromMinutes(plannerSelectionStartMinutes, slotMinutes))
+    setPlannerPreviewMinutes(slotMinutes)
   }
 
   const handlePlannerTrackPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -928,6 +920,7 @@ function App() {
 
     const slotMinutes = getPlannerSlotMinutes(event.clientX)
     plannerPointerDownRef.current = false
+    setPlannerPreviewMinutes(null)
     event.currentTarget.releasePointerCapture(event.pointerId)
 
     if (slotMinutes === null) {
@@ -936,10 +929,6 @@ function App() {
 
     if (plannerSelectionStage === 'start') {
       setPlannerSelectionStartMinutes(slotMinutes)
-      setPlannerDraftSession({
-        startMinutes: slotMinutes,
-        endMinutes: slotMinutes + PLANNER_STEP_MINUTES,
-      })
       setPlannerSelectionStage('end')
       setPlannerSelectionMessage('Release again to set the end time.')
       return
@@ -949,13 +938,11 @@ function App() {
       return
     }
 
-    const nextDraftSession = getPlannerDraftFromMinutes(plannerSelectionStartMinutes, slotMinutes)
+    const nextSessionStart = Math.min(plannerSelectionStartMinutes, slotMinutes)
+    const nextSessionEnd =
+      Math.max(plannerSelectionStartMinutes, slotMinutes) + PLANNER_STEP_MINUTES
 
-    if (hasPlannerOverlap(plannerSessions, nextDraftSession.startMinutes, nextDraftSession.endMinutes)) {
-      setPlannerDraftSession({
-        startMinutes: plannerSelectionStartMinutes,
-        endMinutes: plannerSelectionStartMinutes + PLANNER_STEP_MINUTES,
-      })
+    if (hasPlannerOverlap(plannerSessions, nextSessionStart, nextSessionEnd)) {
       setPlannerSelectionMessage('This overlaps another session.')
       return
     }
@@ -966,14 +953,13 @@ function App() {
         {
           id: `session-${Date.now()}`,
           title: `Session ${currentSessions.length + 1}`,
-          startMinutes: nextDraftSession.startMinutes,
-          endMinutes: nextDraftSession.endMinutes,
+          startMinutes: nextSessionStart,
+          endMinutes: nextSessionEnd,
         },
       ].sort((left, right) => left.startMinutes - right.startMinutes),
     )
     setPlannerSelectionStage('start')
     setPlannerSelectionStartMinutes(null)
-    setPlannerDraftSession(null)
     setPlannerSelectionMessage('')
     setIsPlannerSelecting(false)
   }
@@ -1346,20 +1332,32 @@ function App() {
                       )
                   })}
 
-                  {plannerDraftSession ? (
-                    <article
-                      className="planner-session planner-session--draft"
+                  {plannerSelectionStartMinutes !== null ? (
+                    <div
+                      className="planner-marker planner-marker--start"
                       style={{
-                        left: `${((plannerDraftSession.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100}%`,
-                        width: `${((plannerDraftSession.endMinutes - plannerDraftSession.startMinutes) / plannerTotalMinutes) * 100}%`,
+                        left: `${((plannerSelectionStartMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100}%`,
                       }}
+                      aria-label={`Start time ${formatTimelineTime(plannerSelectionStartMinutes)}`}
                     >
-                      <strong>New session</strong>
-                      <span>
-                        {formatTimelineTime(plannerDraftSession.startMinutes)} -{' '}
-                        {formatTimelineTime(plannerDraftSession.endMinutes)}
+                      <span className="planner-marker__label">
+                        {formatTimelineTime(plannerSelectionStartMinutes)}
                       </span>
-                    </article>
+                    </div>
+                  ) : null}
+
+                  {plannerPreviewMinutes !== null ? (
+                    <div
+                      className="planner-marker planner-marker--preview"
+                      style={{
+                        left: `${((plannerPreviewMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100}%`,
+                      }}
+                      aria-label={`Selected time ${formatTimelineTime(plannerPreviewMinutes)}`}
+                    >
+                      <span className="planner-marker__label">
+                        {formatTimelineTime(plannerPreviewMinutes)}
+                      </span>
+                    </div>
                   ) : null}
 
                   {nowMarkerOffset !== null ? (
@@ -1378,7 +1376,7 @@ function App() {
             {isPlannerSelecting || plannerSelectionMessage ? (
               <div className="planner-selection-bar">
                 <span className="planner-selection-bar__text">
-                  {plannerSelectionMessage || 'Click and drag on the timeline.'}
+                  {plannerSelectionMessage || 'Release to choose a time.'}
                 </span>
               </div>
             ) : null}

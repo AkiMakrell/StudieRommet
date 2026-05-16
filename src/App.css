@@ -375,12 +375,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.planner-session--draft {
-  border-style: dashed;
-  background: rgba(111, 29, 58, 0.16);
-  pointer-events: none;
-}
-
 .planner-now {
   position: absolute;
   top: 0;
@@ -399,6 +393,36 @@
   color: var(--burgundy);
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
+}
+
+.planner-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  border-left: 2px dashed var(--burgundy);
+  pointer-events: none;
+}
+
+.planner-marker--preview {
+  border-left-color: rgba(111, 29, 58, 0.6);
+}
+
+.planner-marker--start {
+  border-left-color: var(--ink);
+}
+
+.planner-marker__label {
+  position: absolute;
+  top: 1.1rem;
+  left: 0.5rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 251, 248, 0.94);
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .planner-selection-bar {
