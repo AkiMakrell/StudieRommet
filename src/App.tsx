@@ -31,8 +31,12 @@ type PlannerSession = {
   note: string
   startMinutes: number
   endMinutes: number
+  sessionDate?: string
   outcome?: 'completed' | 'abandoned'
   focusScore?: number
+  reviewedAt?: string
+  sheetsSyncStatus?: 'pending' | 'synced' | 'failed'
+  sheetsSyncedAt?: string
 }
 
 type PlannerSelectionStage = 'start' | 'end'
@@ -71,6 +75,8 @@ const GOOGLE_CLIENT_ID =
   '347804918623-t28vi7icqkvqr7f8geloto0ncogj13up.apps.googleusercontent.com'
 const GOOGLE_SCOPES =
   'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets'
+const GOOGLE_SHEETS_SPREADSHEET_ID = '1YgnlfTvrEJC2Y0vTL5zI95yii6LBbhAXeWeVxTpNyP0'
+const GOOGLE_SHEETS_TAB_NAME = 'Sessions'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
 const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
 const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
@@ -111,6 +117,36 @@ const typeIndicatorMap: Record<string, { symbol: string; label: string }> = {
 
 function getNow() {
   return new Date()
+}
+
+function formatDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+function getPlannerSessionDateKey(session: PlannerSession, fallbackDateKey: string) {
+  return session.sessionDate ?? fallbackDateKey
+}
+
+function isPlannerSessionReadyForReview(
+  session: PlannerSession,
+  todayDateKey: string,
+  nowInMinutes: number,
+) {
+  const sessionDateKey = getPlannerSessionDateKey(session, todayDateKey)
+
+  return (
+    session.outcome === undefined &&
+    (sessionDateKey < todayDateKey ||
+      (sessionDateKey === todayDateKey && nowInMinutes >= session.endMinutes))
+  )
+}
+
+function formatSheetDateTime(dateKey: string, totalMinutes: number) {
+  return `${dateKey} ${formatTimelineTime(totalMinutes)}`
 }
 
 function parseTags(tagValue: string) {
@@ -178,16 +214,33 @@ function loadStoredPlannerSessions() {
             typeof candidate.note === 'string' &&
             typeof candidate.startMinutes === 'number' &&
             typeof candidate.endMinutes === 'number' &&
+            (candidate.sessionDate === undefined || typeof candidate.sessionDate === 'string') &&
             (candidate.outcome === undefined ||
               candidate.outcome === 'completed' ||
               candidate.outcome === 'abandoned') &&
             (candidate.focusScore === undefined ||
               (typeof candidate.focusScore === 'number' &&
                 candidate.focusScore >= 1 &&
-                candidate.focusScore <= 10))
+                candidate.focusScore <= 10)) &&
+            (candidate.reviewedAt === undefined || typeof candidate.reviewedAt === 'string') &&
+            (candidate.sheetsSyncStatus === undefined ||
+              candidate.sheetsSyncStatus === 'pending' ||
+              candidate.sheetsSyncStatus === 'synced' ||
+              candidate.sheetsSyncStatus === 'failed') &&
+            (candidate.sheetsSyncedAt === undefined ||
+              typeof candidate.sheetsSyncedAt === 'string')
           )
         })
-        .sort((left, right) => left.startMinutes - right.startMinutes)
+        .sort((left, right) => {
+          const leftDate = left.sessionDate ?? ''
+          const rightDate = right.sessionDate ?? ''
+
+          if (leftDate !== rightDate) {
+            return leftDate.localeCompare(rightDate)
+          }
+
+          return left.startMinutes - right.startMinutes
+        })
     }
   } catch {
     localStorage.removeItem(PLANNER_SESSIONS_STORAGE_KEY)
@@ -407,6 +460,46 @@ async function deleteFileFromDrive(accessToken: string, fileId: string) {
   }
 }
 
+async function appendPlannerSessionToSheet(
+  accessToken: string,
+  session: PlannerSession,
+  fallbackDateKey: string,
+) {
+  const sessionDateKey = getPlannerSessionDateKey(session, fallbackDateKey)
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEETS_SPREADSHEET_ID}/values/${encodeURIComponent(`${GOOGLE_SHEETS_TAB_NAME}!A:I`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        values: [
+          [
+            sessionDateKey,
+            session.subject,
+            session.note,
+            formatSheetDateTime(sessionDateKey, session.startMinutes),
+            formatSheetDateTime(sessionDateKey, session.endMinutes),
+            session.endMinutes - session.startMinutes,
+            session.outcome ?? '',
+            session.focusScore ?? '',
+            session.reviewedAt ?? new Date().toISOString(),
+          ],
+        ],
+      }),
+    },
+  )
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(errorText || 'Google Sheets request failed.')
+  }
+
+  return (await response.json()) as { updates?: { updatedRows?: number } }
+}
+
 function formatDriveMeta(createdTime?: string) {
   if (!createdTime) {
     return 'Saved in Google Drive'
@@ -442,6 +535,11 @@ function App() {
     useState<number | null>(null)
   const [plannerPreviewMinutes, setPlannerPreviewMinutes] = useState<number | null>(null)
   const [plannerSelectionMessage, setPlannerSelectionMessage] = useState('')
+  const [plannerReviewOutcome, setPlannerReviewOutcome] = useState<
+    'completed' | 'abandoned' | ''
+  >('')
+  const [plannerReviewFocusScore, setPlannerReviewFocusScore] = useState(8)
+  const [plannerReviewError, setPlannerReviewError] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Connect Google Drive to upload files across devices.',
@@ -509,9 +607,18 @@ function App() {
     [now],
   )
 
+  const todayDateKey = useMemo(() => formatDateKey(now), [now])
+  const nowInMinutes = useMemo(() => now.getHours() * 60 + now.getMinutes(), [now])
   const plannerStartMinutes = PLANNER_START_HOUR * 60
   const plannerEndMinutes = PLANNER_END_HOUR * 60
   const plannerTotalMinutes = plannerEndMinutes - plannerStartMinutes
+  const todaysPlannerSessions = useMemo(
+    () =>
+      plannerSessions.filter(
+        (session) => getPlannerSessionDateKey(session, todayDateKey) === todayDateKey,
+      ),
+    [plannerSessions, todayDateKey],
+  )
 
   const plannerHours = useMemo(
     () =>
@@ -526,30 +633,25 @@ function App() {
   )
 
   const nowMarkerOffset = useMemo(() => {
-    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
-
     if (nowInMinutes < plannerStartMinutes || nowInMinutes > plannerEndMinutes) {
       return null
     }
 
     return ((nowInMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
-  }, [now, plannerEndMinutes, plannerStartMinutes, plannerTotalMinutes])
+  }, [nowInMinutes, plannerEndMinutes, plannerStartMinutes, plannerTotalMinutes])
 
   const activePlannerSession = useMemo(() => {
-    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
-
-    return plannerSessions.find(
+    return todaysPlannerSessions.find(
       (session) =>
         nowInMinutes >= session.startMinutes && nowInMinutes < session.endMinutes,
     )
-  }, [now, plannerSessions])
+  }, [nowInMinutes, todaysPlannerSessions])
 
   const activePlannerProgress = useMemo(() => {
     if (!activePlannerSession) {
       return null
     }
 
-    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
     const totalMinutes =
       activePlannerSession.endMinutes - activePlannerSession.startMinutes
     const elapsedMinutes = nowInMinutes - activePlannerSession.startMinutes
@@ -559,7 +661,15 @@ function App() {
       progress: Math.min(Math.max((elapsedMinutes / totalMinutes) * 100, 0), 100),
       remainingMinutes,
     }
-  }, [activePlannerSession, now])
+  }, [activePlannerSession, nowInMinutes])
+
+  const plannerReviewSession = useMemo(
+    () =>
+      plannerSessions.find((session) =>
+        isPlannerSessionReadyForReview(session, todayDateKey, nowInMinutes),
+      ) ?? null,
+    [nowInMinutes, plannerSessions, todayDateKey],
+  )
 
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
@@ -629,6 +739,72 @@ function App() {
       )
     }
   }, [])
+
+  const syncPlannerSessionToSheets = useCallback(
+    async (session: PlannerSession, tokenOverride?: string) => {
+      const token = tokenOverride ?? accessTokenRef.current
+
+      if (!token || !session.outcome) {
+        return false
+      }
+
+      try {
+        await appendPlannerSessionToSheet(token, session, todayDateKey)
+
+        setPlannerSessions((currentSessions) =>
+          currentSessions.map((currentSession) =>
+            currentSession.id === session.id
+              ? {
+                  ...currentSession,
+                  sheetsSyncStatus: 'synced',
+                  sheetsSyncedAt: new Date().toISOString(),
+                }
+              : currentSession,
+          ),
+        )
+        setStatusMessage('Session saved to Google Sheets.')
+        return true
+      } catch (error) {
+        setPlannerSessions((currentSessions) =>
+          currentSessions.map((currentSession) =>
+            currentSession.id === session.id
+              ? { ...currentSession, sheetsSyncStatus: 'failed' }
+              : currentSession,
+          ),
+        )
+        setStatusMessage(
+          error instanceof Error
+            ? `Could not save session log: ${error.message}`
+            : 'Could not save session log.',
+        )
+        return false
+      }
+    },
+    [todayDateKey],
+  )
+
+  const flushPendingPlannerSessionLogs = useCallback(
+    async (tokenOverride?: string) => {
+      const token = tokenOverride ?? accessTokenRef.current
+
+      if (!token) {
+        return
+      }
+
+      const pendingSessions = plannerSessions.filter(
+        (session) => session.outcome && session.sheetsSyncStatus !== 'synced',
+      )
+
+      for (const session of pendingSessions) {
+        const synced = await syncPlannerSessionToSheets(session, token)
+
+        if (!synced) {
+          break
+        }
+      }
+    },
+    [plannerSessions, syncPlannerSessionToSheets],
+  )
 
   const uploadFiles = useCallback(
     async (
@@ -756,12 +932,13 @@ function App() {
               return
             }
 
-            setAccessToken(response.access_token)
-            localStorage.setItem(DRIVE_AUTO_CONNECT_KEY, 'true')
-            void loadDriveDocuments(response.access_token)
+             setAccessToken(response.access_token)
+             localStorage.setItem(DRIVE_AUTO_CONNECT_KEY, 'true')
+             void loadDriveDocuments(response.access_token)
+             void flushPendingPlannerSessionLogs(response.access_token)
 
-            if (pendingUploadsRef.current.length > 0) {
-              setStatusMessage('Choose a subject and name, then upload your file.')
+             if (pendingUploadsRef.current.length > 0) {
+               setStatusMessage('Choose a subject and name, then upload your file.')
             }
           },
           error_callback: () => {
@@ -791,7 +968,7 @@ function App() {
     return () => {
       clearAuthTimeout()
     }
-  }, [clearAuthTimeout, loadDriveDocuments, startAuthRequest])
+  }, [clearAuthTimeout, flushPendingPlannerSessionLogs, loadDriveDocuments, startAuthRequest])
 
   const connectDrive = () => {
     startAuthRequest('manual', accessTokenRef.current ? '' : 'consent')
@@ -1071,7 +1248,7 @@ function App() {
     const nextSessionEnd =
       Math.max(plannerSelectionStartMinutes, slotMinutes) + PLANNER_STEP_MINUTES
 
-      if (hasPlannerOverlap(plannerSessions, nextSessionStart, nextSessionEnd)) {
+    if (hasPlannerOverlap(todaysPlannerSessions, nextSessionStart, nextSessionEnd)) {
       setPlannerSelectionMessage('This overlaps another session.')
       return
     }
@@ -1079,14 +1256,15 @@ function App() {
     setPlannerSessions((currentSessions) =>
       [
         ...currentSessions,
-        {
-          id: `session-${Date.now()}`,
-          subject: plannerPendingSubject,
-          note: plannerPendingNote,
-          startMinutes: nextSessionStart,
-          endMinutes: nextSessionEnd,
-        },
-      ].sort((left, right) => left.startMinutes - right.startMinutes),
+          {
+            id: `session-${Date.now()}`,
+            subject: plannerPendingSubject,
+            note: plannerPendingNote,
+            startMinutes: nextSessionStart,
+            endMinutes: nextSessionEnd,
+            sessionDate: todayDateKey,
+          },
+        ].sort((left, right) => left.startMinutes - right.startMinutes),
     )
     setPlannerSelectionStage('start')
     setPlannerSelectionStartMinutes(null)
@@ -1094,6 +1272,44 @@ function App() {
     setPlannerPendingNote('')
     setPlannerSelectionMessage('')
     setIsPlannerSelecting(false)
+  }
+
+  const handlePlannerReviewSubmit = () => {
+    if (!plannerReviewSession) {
+      return
+    }
+
+    if (!plannerReviewOutcome) {
+      setPlannerReviewError('Choose completed or abandoned.')
+      return
+    }
+
+    const reviewedSession: PlannerSession = {
+      ...plannerReviewSession,
+      outcome: plannerReviewOutcome,
+      focusScore:
+        plannerReviewOutcome === 'completed' ? plannerReviewFocusScore : undefined,
+      reviewedAt: new Date().toISOString(),
+      sheetsSyncStatus: 'pending',
+      sheetsSyncedAt: undefined,
+    }
+
+    setPlannerSessions((currentSessions) =>
+      currentSessions.map((session) =>
+        session.id === plannerReviewSession.id ? reviewedSession : session,
+      ),
+    )
+    setPlannerReviewOutcome('')
+    setPlannerReviewFocusScore(8)
+    setPlannerReviewError('')
+
+    if (accessTokenRef.current) {
+      void syncPlannerSessionToSheets(reviewedSession)
+      return
+    }
+
+    setStatusMessage('Session saved locally. Connect Google Drive to sync it to Google Sheets.')
+    connectDrive()
   }
 
   const uploadButtonLabel = accessToken
@@ -1475,7 +1691,7 @@ function App() {
                     ))}
                   </div>
 
-                  {plannerSessions.map((session) => {
+                    {todaysPlannerSessions.map((session) => {
                     const subjectTone = getSubjectTone(session.subject)
                     const left = ((session.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
                     const width =
@@ -1615,6 +1831,90 @@ function App() {
                   <div className="upload-dialog__actions">
                     <button className="upload-button" type="button" onClick={handleStartPlannerSelection}>
                       Choose time
+                    </button>
+                  </div>
+                </section>
+              </div>
+            ) : null}
+
+            {plannerReviewSession ? (
+              <div className="upload-dialog-backdrop">
+                <section
+                  className="upload-dialog planner-review-dialog"
+                  aria-labelledby="planner-review-title"
+                >
+                  <div className="upload-dialog__header">
+                    <div>
+                      <p className="eyebrow">Session review</p>
+                      <h2 id="planner-review-title">{plannerReviewSession.subject}</h2>
+                    </div>
+                    <span className="planner-review-dialog__time">
+                      {formatTimelineTime(plannerReviewSession.startMinutes)} -{' '}
+                      {formatTimelineTime(plannerReviewSession.endMinutes)}
+                    </span>
+                  </div>
+
+                  <div className="upload-dialog__form planner-review-dialog__form">
+                    <div className="planner-review-choice-group" role="radiogroup" aria-label="Session outcome">
+                      <button
+                        className={
+                          plannerReviewOutcome === 'completed'
+                            ? 'planner-review-choice is-active'
+                            : 'planner-review-choice'
+                        }
+                        type="button"
+                        onClick={() => {
+                          setPlannerReviewOutcome('completed')
+                          setPlannerReviewError('')
+                        }}
+                      >
+                        Completed
+                      </button>
+                      <button
+                        className={
+                          plannerReviewOutcome === 'abandoned'
+                            ? 'planner-review-choice is-active'
+                            : 'planner-review-choice'
+                        }
+                        type="button"
+                        onClick={() => {
+                          setPlannerReviewOutcome('abandoned')
+                          setPlannerReviewError('')
+                        }}
+                      >
+                        Abandoned
+                      </button>
+                    </div>
+
+                    {plannerReviewOutcome === 'completed' ? (
+                      <label className="field">
+                        <span>Focus</span>
+                        <div className="planner-review-slider">
+                          <input
+                            type="range"
+                            min="1"
+                            max="10"
+                            step="1"
+                            value={plannerReviewFocusScore}
+                            onChange={(event) =>
+                              setPlannerReviewFocusScore(Number(event.target.value))
+                            }
+                          />
+                          <strong>{plannerReviewFocusScore}</strong>
+                        </div>
+                      </label>
+                    ) : null}
+
+                    {plannerReviewError ? (
+                      <p className="planner-selection-bar__text planner-review-dialog__error">
+                        {plannerReviewError}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="upload-dialog__actions">
+                    <button className="upload-button" type="button" onClick={handlePlannerReviewSubmit}>
+                      Save review
                     </button>
                   </div>
                 </section>

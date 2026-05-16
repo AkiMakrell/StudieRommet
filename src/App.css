@@ -503,6 +503,65 @@
   color: var(--burgundy);
 }
 
+.planner-review-dialog {
+  width: min(100%, 30rem);
+}
+
+.planner-review-dialog__form {
+  display: grid;
+  gap: 1rem;
+}
+
+.planner-review-dialog__time {
+  color: var(--mole);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.planner-review-choice-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.planner-review-choice {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.planner-review-choice.is-active {
+  border-color: rgba(111, 29, 58, 0.42);
+  background: rgba(111, 29, 58, 0.1);
+  color: var(--burgundy);
+}
+
+.planner-review-slider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.planner-review-slider input {
+  width: 100%;
+  margin: 0;
+}
+
+.planner-review-slider strong {
+  min-width: 1.5rem;
+  color: var(--ink);
+  text-align: right;
+}
+
+.planner-review-dialog__error {
+  color: var(--burgundy);
+}
+
 .note-page__header {
   display: flex;
   justify-content: space-between;
