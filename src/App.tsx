@@ -50,7 +50,6 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
 const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
 const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
-const ADD_SUBJECT_VALUE = '__add_subject__'
 
 const navItems = ['Dashboard', 'Library', 'Planner', 'Sessions', 'Insights']
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
@@ -74,14 +73,6 @@ function mergeSubjects(currentSubjects: string[], incomingSubjects: string[]) {
         .filter(Boolean),
     ),
   ).sort((left, right) => left.localeCompare(right))
-}
-
-function resolveSubject(optionValue: string, newSubjectValue: string) {
-  if (optionValue === ADD_SUBJECT_VALUE) {
-    return newSubjectValue.trim()
-  }
-
-  return optionValue.trim()
 }
 
 function loadStoredSubjects() {
@@ -276,13 +267,11 @@ function App() {
   const [currentView, setCurrentView] = useState<CurrentView>('library')
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [subjects, setSubjects] = useState<string[]>(loadStoredSubjects)
-  const [selectedSubject, setSelectedSubject] = useState(ADD_SUBJECT_VALUE)
-  const [newSubjectName, setNewSubjectName] = useState('')
+  const [uploadSubjectInput, setUploadSubjectInput] = useState('')
   const [selectedType, setSelectedType] = useState('Notes')
   const [tagValue, setTagValue] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  const [noteSubject, setNoteSubject] = useState(ADD_SUBJECT_VALUE)
-  const [noteNewSubjectName, setNoteNewSubjectName] = useState('')
+  const [noteSubjectInput, setNoteSubjectInput] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Connect Google Drive to upload files across devices.',
@@ -446,8 +435,7 @@ function App() {
         setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments])
         pendingFilesRef.current = []
         setPendingFiles([])
-        setSelectedSubject(subjectName)
-        setNewSubjectName('')
+        setUploadSubjectInput(subjectName)
         await loadDriveDocuments(token)
       } catch (error) {
         setStatusMessage(
@@ -615,7 +603,7 @@ function App() {
     }
 
     if (pendingFilesRef.current.length > 0) {
-      const resolvedSubject = resolveSubject(selectedSubject, newSubjectName)
+      const resolvedSubject = uploadSubjectInput.trim()
 
       if (!resolvedSubject) {
         setStatusMessage('Add a subject before uploading.')
@@ -632,8 +620,7 @@ function App() {
   const handleClearPendingFiles = () => {
     pendingFilesRef.current = []
     setPendingFiles([])
-    setSelectedSubject(subjects.length > 0 ? '' : ADD_SUBJECT_VALUE)
-    setNewSubjectName('')
+    setUploadSubjectInput('')
     setStatusMessage(
       accessTokenRef.current
         ? 'Google Drive connected. Choose files to upload.'
@@ -882,31 +869,16 @@ function App() {
                   <div className="upload-dialog__form">
                     <label className="field">
                       <span>Subject</span>
-                      <select
-                        value={selectedSubject}
-                        onChange={(event) => setSelectedSubject(event.target.value)}
-                      >
-                        {subjects.length > 0 ? <option value="">Choose subject</option> : null}
-                        {subjects.map((subject) => (
-                          <option key={subject} value={subject}>
-                            {subject}
-                          </option>
-                        ))}
-                        <option value={ADD_SUBJECT_VALUE}>Add subject</option>
-                      </select>
+                      <input
+                        type="text"
+                        list={subjects.length > 0 ? 'subject-suggestions' : undefined}
+                        placeholder={
+                          subjects.length > 0 ? 'Type or choose a subject' : 'Add subject'
+                        }
+                        value={uploadSubjectInput}
+                        onChange={(event) => setUploadSubjectInput(event.target.value)}
+                      />
                     </label>
-
-                    {selectedSubject === ADD_SUBJECT_VALUE ? (
-                      <label className="field">
-                        <span>New subject</span>
-                        <input
-                          type="text"
-                          placeholder="Add subject"
-                          value={newSubjectName}
-                          onChange={(event) => setNewSubjectName(event.target.value)}
-                        />
-                      </label>
-                    ) : null}
 
                     <label className="field">
                       <span>Type</span>
@@ -976,31 +948,16 @@ function App() {
 
               <label className="field">
                 <span>Subject</span>
-                <select
-                  value={noteSubject}
-                  onChange={(event) => setNoteSubject(event.target.value)}
-                >
-                  {subjects.length > 0 ? <option value="">Choose subject</option> : null}
-                  {subjects.map((subject) => (
-                    <option key={subject} value={subject}>
-                      {subject}
-                    </option>
-                  ))}
-                  <option value={ADD_SUBJECT_VALUE}>Add subject</option>
-                </select>
+                <input
+                  type="text"
+                  list={subjects.length > 0 ? 'subject-suggestions' : undefined}
+                  placeholder={
+                    subjects.length > 0 ? 'Type or choose a subject' : 'Add subject'
+                  }
+                  value={noteSubjectInput}
+                  onChange={(event) => setNoteSubjectInput(event.target.value)}
+                />
               </label>
-
-              {noteSubject === ADD_SUBJECT_VALUE ? (
-                <label className="field">
-                  <span>New subject</span>
-                  <input
-                    type="text"
-                    placeholder="Add subject"
-                    value={noteNewSubjectName}
-                    onChange={(event) => setNoteNewSubjectName(event.target.value)}
-                  />
-                </label>
-              ) : null}
 
               <label className="field">
                 <span>Tags</span>
@@ -1017,6 +974,14 @@ function App() {
             </label>
           </section>
         )}
+
+        {subjects.length > 0 ? (
+          <datalist id="subject-suggestions">
+            {subjects.map((subject) => (
+              <option key={subject} value={subject} />
+            ))}
+          </datalist>
+        ) : null}
       </main>
     </div>
   )
