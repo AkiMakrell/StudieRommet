@@ -241,6 +241,22 @@
   max-width: 20rem;
 }
 
+.pending-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.pending-file {
+  display: inline-flex;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(111, 29, 58, 0.1);
+  color: var(--burgundy);
+  font-size: 0.82rem;
+}
+
 .file-input {
   display: none;
 }
@@ -332,6 +348,12 @@
   display: grid;
   gap: 1rem;
   padding: 0 1.25rem 1.25rem;
+}
+
+.documents-empty {
+  padding: 1.5rem 0;
+  color: var(--mole);
+  text-align: center;
 }
 
 .document-card {

@@ -49,20 +49,11 @@ const GOOGLE_CLIENT_ID =
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
 const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
+const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
+const ADD_SUBJECT_VALUE = '__add_subject__'
 
 const navItems = ['Dashboard', 'Library', 'Planner', 'Sessions', 'Insights']
-
-const subjects = [
-  { name: 'Microeconomics', count: 18 },
-  { name: 'Mathematics', count: 24 },
-  { name: 'Accounting', count: 13 },
-  { name: 'Management', count: 11 },
-  { name: 'Statistics', count: 16 },
-]
-
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
-
-const initialDocuments: DocumentItem[] = []
 
 function getNow() {
   return new Date()
@@ -73,6 +64,47 @@ function parseTags(tagValue: string) {
     .split(',')
     .map((tag) => tag.trim())
     .filter(Boolean)
+}
+
+function mergeSubjects(currentSubjects: string[], incomingSubjects: string[]) {
+  return Array.from(
+    new Set(
+      [...currentSubjects, ...incomingSubjects]
+        .map((subject) => subject.trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right))
+}
+
+function resolveSubject(optionValue: string, newSubjectValue: string) {
+  if (optionValue === ADD_SUBJECT_VALUE) {
+    return newSubjectValue.trim()
+  }
+
+  return optionValue.trim()
+}
+
+function loadStoredSubjects() {
+  const storedSubjects = localStorage.getItem(SUBJECTS_STORAGE_KEY)
+
+  if (!storedSubjects) {
+    return []
+  }
+
+  try {
+    const parsedSubjects = JSON.parse(storedSubjects) as unknown
+
+    if (Array.isArray(parsedSubjects)) {
+      return mergeSubjects(
+        [],
+        parsedSubjects.filter((subject): subject is string => typeof subject === 'string'),
+      )
+    }
+  } catch {
+    localStorage.removeItem(SUBJECTS_STORAGE_KEY)
+  }
+
+  return []
 }
 
 async function loadGoogleIdentityScript() {
@@ -242,10 +274,15 @@ function formatDriveMeta(createdTime?: string) {
 function App() {
   const [now, setNow] = useState(getNow)
   const [currentView, setCurrentView] = useState<CurrentView>('library')
-  const [documents, setDocuments] = useState(initialDocuments)
-  const [selectedSubject, setSelectedSubject] = useState(subjects[0].name)
+  const [documents, setDocuments] = useState<DocumentItem[]>([])
+  const [subjects, setSubjects] = useState<string[]>(loadStoredSubjects)
+  const [selectedSubject, setSelectedSubject] = useState(ADD_SUBJECT_VALUE)
+  const [newSubjectName, setNewSubjectName] = useState('')
   const [selectedType, setSelectedType] = useState('Notes')
   const [tagValue, setTagValue] = useState('')
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [noteSubject, setNoteSubject] = useState(ADD_SUBJECT_VALUE)
+  const [noteNewSubjectName, setNoteNewSubjectName] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Connect Google Drive to upload files across devices.',
@@ -264,6 +301,10 @@ function App() {
   useEffect(() => {
     accessTokenRef.current = accessToken
   }, [accessToken])
+
+  useEffect(() => {
+    localStorage.setItem(SUBJECTS_STORAGE_KEY, JSON.stringify(subjects))
+  }, [subjects])
 
   useEffect(() => {
     const scheduleUpdate = () => {
@@ -299,42 +340,6 @@ function App() {
       authTimeoutRef.current = null
     }
   }, [])
-
-  const startAuthRequest = useCallback(
-    (mode: 'manual' | 'auto', prompt: string) => {
-      if (!tokenClientRef.current) {
-        setStatusMessage('Google Drive sign-in is still loading.')
-        return
-      }
-
-      authModeRef.current = mode
-      clearAuthTimeout()
-      setIsAuthenticating(true)
-      setStatusMessage(
-        mode === 'auto'
-          ? 'Reconnecting to Google Drive...'
-          : 'Connecting to Google Drive...',
-      )
-
-      authTimeoutRef.current = window.setTimeout(() => {
-        setIsAuthenticating(false)
-        setStatusMessage(
-          mode === 'auto'
-            ? 'Connect Google Drive to upload files across devices.'
-            : 'Google Drive sign-in timed out. Try again.',
-        )
-      }, mode === 'auto' ? 8000 : 60000)
-
-      try {
-        tokenClientRef.current.requestAccessToken({ prompt })
-      } catch {
-        clearAuthTimeout()
-        setIsAuthenticating(false)
-        setStatusMessage('Google Drive sign-in could not start.')
-      }
-    },
-    [clearAuthTimeout],
-  )
 
   const loadDriveDocuments = useCallback(async (tokenOverride?: string) => {
     const token = tokenOverride ?? accessTokenRef.current
@@ -374,6 +379,14 @@ function App() {
         link: file.webViewLink,
       }))
 
+      setSubjects((currentSubjects) =>
+        mergeSubjects(
+          currentSubjects,
+          nextDocuments
+            .map((document) => document.subject)
+            .filter((subject) => subject !== 'Unsorted'),
+        ),
+      )
       setDocuments(nextDocuments)
       setStatusMessage(
         nextDocuments.length > 0
@@ -389,62 +402,102 @@ function App() {
     }
   }, [])
 
-  const uploadFiles = useCallback(async (
-    files: File[],
-    tokenOverride?: string,
-  ): Promise<void> => {
-    const token = tokenOverride ?? accessTokenRef.current
+  const uploadFiles = useCallback(
+    async (files: File[], subjectName: string, tokenOverride?: string): Promise<void> => {
+      const token = tokenOverride ?? accessTokenRef.current
 
-    if (!token || files.length === 0) {
-      return
-    }
+      if (!token || files.length === 0 || !subjectName) {
+        return
+      }
 
-    try {
-      setIsUploading(true)
+      try {
+        setIsUploading(true)
+        setStatusMessage(
+          `Uploading ${files.length} file${files.length > 1 ? 's' : ''} to Google Drive...`,
+        )
+
+        const folderId = await ensureDriveFolder(token)
+        const tags = parseTags(tagValue)
+
+        const uploadedDocuments = await Promise.all(
+          files.map(async (file) => {
+            const uploadedFile = await uploadFileToDrive(
+              token,
+              file,
+              folderId,
+              subjectName,
+              selectedType,
+              tags,
+            )
+
+            return {
+              id: uploadedFile.id,
+              title: uploadedFile.name,
+              subject: subjectName,
+              type: selectedType,
+              meta: 'Uploaded just now',
+              tags,
+              link: uploadedFile.webViewLink,
+            } satisfies DocumentItem
+          }),
+        )
+
+        setSubjects((currentSubjects) => mergeSubjects(currentSubjects, [subjectName]))
+        setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments])
+        pendingFilesRef.current = []
+        setPendingFiles([])
+        setSelectedSubject(subjectName)
+        setNewSubjectName('')
+        await loadDriveDocuments(token)
+      } catch (error) {
+        setStatusMessage(
+          error instanceof Error
+            ? `Upload failed: ${error.message}`
+            : 'Upload failed.',
+        )
+      } finally {
+        setIsUploading(false)
+        setIsDragActive(false)
+      }
+    },
+    [loadDriveDocuments, selectedType, tagValue],
+  )
+
+  const startAuthRequest = useCallback(
+    (mode: 'manual' | 'auto', prompt: string) => {
+      if (!tokenClientRef.current) {
+        setStatusMessage('Google Drive sign-in is still loading.')
+        return
+      }
+
+      authModeRef.current = mode
+      clearAuthTimeout()
+      setIsAuthenticating(true)
       setStatusMessage(
-        `Uploading ${files.length} file${files.length > 1 ? 's' : ''} to Google Drive...`,
+        mode === 'auto'
+          ? 'Reconnecting to Google Drive...'
+          : 'Connecting to Google Drive...',
       )
 
-      const folderId = await ensureDriveFolder(token)
-      const tags = parseTags(tagValue)
+      authTimeoutRef.current = window.setTimeout(() => {
+        setIsAuthenticating(false)
+        setStatusMessage(
+          mode === 'auto'
+            ? 'Connect Google Drive to upload files across devices.'
+            : 'Google Drive sign-in timed out. Try again.',
+        )
+      }, mode === 'auto' ? 8000 : 60000)
 
-      const uploadedDocuments = await Promise.all(
-        files.map(async (file) => {
-          const uploadedFile = await uploadFileToDrive(
-            token,
-            file,
-            folderId,
-            selectedSubject,
-            selectedType,
-            tags,
-          )
-
-          return {
-            id: uploadedFile.id,
-            title: uploadedFile.name,
-            subject: selectedSubject,
-            type: selectedType,
-            meta: 'Uploaded just now',
-            tags,
-            link: uploadedFile.webViewLink,
-          } satisfies DocumentItem
-        }),
-      )
-
-      setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments])
-      pendingFilesRef.current = []
-      await loadDriveDocuments(token)
-    } catch (error) {
-      setStatusMessage(
-        error instanceof Error
-          ? `Upload failed: ${error.message}`
-          : 'Upload failed.',
-      )
-    } finally {
-      setIsUploading(false)
-      setIsDragActive(false)
-    }
-  }, [loadDriveDocuments, selectedSubject, selectedType, tagValue])
+      try {
+        tokenClientRef.current.requestAccessToken({ prompt })
+      } catch {
+        clearAuthTimeout()
+        setIsAuthenticating(false)
+        setStatusMessage('Google Drive sign-in could not start.')
+      }
+    },
+    [clearAuthTimeout],
+  )
 
   useEffect(() => {
     const initializeGoogle = async () => {
@@ -463,11 +516,11 @@ function App() {
             setIsAuthenticating(false)
 
             if (response.error || !response.access_token) {
-              if (authModeRef.current === 'manual') {
-                setStatusMessage('Google Drive sign-in did not complete.')
-              } else {
-                setStatusMessage('Connect Google Drive to upload files across devices.')
-              }
+              setStatusMessage(
+                authModeRef.current === 'auto'
+                  ? 'Connect Google Drive to upload files across devices.'
+                  : 'Google Drive sign-in did not complete.',
+              )
               return
             }
 
@@ -476,7 +529,7 @@ function App() {
             void loadDriveDocuments(response.access_token)
 
             if (pendingFilesRef.current.length > 0) {
-              void uploadFiles(pendingFilesRef.current, response.access_token)
+              setStatusMessage('Choose a subject, then upload your file.')
             }
           },
           error_callback: () => {
@@ -506,7 +559,7 @@ function App() {
     return () => {
       clearAuthTimeout()
     }
-  }, [clearAuthTimeout, loadDriveDocuments, startAuthRequest, uploadFiles])
+  }, [clearAuthTimeout, loadDriveDocuments, startAuthRequest])
 
   const connectDrive = () => {
     startAuthRequest('manual', accessTokenRef.current ? '' : 'consent')
@@ -517,12 +570,15 @@ function App() {
       return
     }
 
+    pendingFilesRef.current = files
+    setPendingFiles(files)
+
     if (accessTokenRef.current) {
-      void uploadFiles(files)
+      setStatusMessage('Choose a subject, then upload your file.')
       return
     }
 
-    pendingFilesRef.current = files
+    setStatusMessage('Connect Google Drive to finish uploading your file.')
     connectDrive()
   }
 
@@ -534,8 +590,7 @@ function App() {
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
-    const droppedFiles = Array.from(event.dataTransfer.files)
-    handleIncomingFiles(droppedFiles)
+    handleIncomingFiles(Array.from(event.dataTransfer.files))
   }
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -556,6 +611,18 @@ function App() {
   const handleUploadButtonClick = () => {
     if (!accessTokenRef.current) {
       connectDrive()
+      return
+    }
+
+    if (pendingFilesRef.current.length > 0) {
+      const resolvedSubject = resolveSubject(selectedSubject, newSubjectName)
+
+      if (!resolvedSubject) {
+        setStatusMessage('Add a subject before uploading.')
+        return
+      }
+
+      void uploadFiles(pendingFilesRef.current, resolvedSubject)
       return
     }
 
@@ -598,7 +665,11 @@ function App() {
     }
   }
 
-  const uploadButtonLabel = accessToken ? 'Upload' : 'Connect Drive'
+  const uploadButtonLabel = accessToken
+    ? pendingFiles.length > 0
+      ? `Upload ${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''}`
+      : 'Choose files'
+    : 'Connect Drive'
 
   return (
     <div className="app-shell">
@@ -686,6 +757,15 @@ function App() {
                 >
                   <p className="dropzone-title">Drop files here</p>
                   <p className="dropzone-copy">{statusMessage}</p>
+                  {pendingFiles.length > 0 ? (
+                    <div className="pending-files">
+                      {pendingFiles.map((file) => (
+                        <span key={`${file.name}-${file.lastModified}`} className="pending-file">
+                          {file.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   <button
                     className="secondary-button"
                     type="button"
@@ -710,13 +790,27 @@ function App() {
                       value={selectedSubject}
                       onChange={(event) => setSelectedSubject(event.target.value)}
                     >
+                      {subjects.length > 0 ? <option value="">Choose subject</option> : null}
                       {subjects.map((subject) => (
-                        <option key={subject.name} value={subject.name}>
-                          {subject.name}
+                        <option key={subject} value={subject}>
+                          {subject}
                         </option>
                       ))}
+                      <option value={ADD_SUBJECT_VALUE}>Add subject</option>
                     </select>
                   </label>
+
+                  {selectedSubject === ADD_SUBJECT_VALUE ? (
+                    <label className="field">
+                      <span>New subject</span>
+                      <input
+                        type="text"
+                        placeholder="Add subject"
+                        value={newSubjectName}
+                        onChange={(event) => setNewSubjectName(event.target.value)}
+                      />
+                    </label>
+                  ) : null}
 
                   <label className="field">
                     <span>Type</span>
@@ -751,7 +845,7 @@ function App() {
                 <div className="document-list">
                   {documents.length > 0 ? (
                     documents.map((document) => (
-                      <article key={`${document.title}-${document.meta}`} className="document-card">
+                      <article key={`${document.id ?? document.title}-${document.meta}`} className="document-card">
                         <div className="document-card__top">
                           <div>
                             {document.link ? (
@@ -828,14 +922,31 @@ function App() {
 
               <label className="field">
                 <span>Subject</span>
-                <select defaultValue="Management">
+                <select
+                  value={noteSubject}
+                  onChange={(event) => setNoteSubject(event.target.value)}
+                >
+                  {subjects.length > 0 ? <option value="">Choose subject</option> : null}
                   {subjects.map((subject) => (
-                    <option key={subject.name} value={subject.name}>
-                      {subject.name}
+                    <option key={subject} value={subject}>
+                      {subject}
                     </option>
                   ))}
+                  <option value={ADD_SUBJECT_VALUE}>Add subject</option>
                 </select>
               </label>
+
+              {noteSubject === ADD_SUBJECT_VALUE ? (
+                <label className="field">
+                  <span>New subject</span>
+                  <input
+                    type="text"
+                    placeholder="Add subject"
+                    value={noteNewSubjectName}
+                    onChange={(event) => setNoteNewSubjectName(event.target.value)}
+                  />
+                </label>
+              ) : null}
 
               <label className="field">
                 <span>Tags</span>
