@@ -1407,6 +1407,7 @@ function App() {
                   />
 
                   {plannerSessions.map((session) => {
+                    const subjectTone = getSubjectTone(session.subject)
                     const left = ((session.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
                     const width =
                       ((session.endMinutes - session.startMinutes) / plannerTotalMinutes) * 100
@@ -1415,7 +1416,12 @@ function App() {
                       <article
                         key={session.id}
                         className="planner-session"
-                        style={{ left: `${left}%`, width: `${width}%` }}
+                        style={{
+                          left: `${left}%`,
+                          width: `${width}%`,
+                          backgroundColor: subjectTone.background,
+                          borderColor: subjectTone.border,
+                        }}
                       >
                         <strong>{session.subject}</strong>
                         {session.note ? <p className="planner-session__note">{session.note}</p> : null}
