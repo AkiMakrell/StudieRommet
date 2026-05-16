@@ -489,6 +489,16 @@ function App() {
     [now],
   )
 
+  const formattedPlannerDate = useMemo(
+    () =>
+      new Intl.DateTimeFormat(undefined, {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+      }).format(now),
+    [now],
+  )
+
   const plannerStartMinutes = PLANNER_START_HOUR * 60
   const plannerEndMinutes = PLANNER_END_HOUR * 60
   const plannerTotalMinutes = plannerEndMinutes - plannerStartMinutes
@@ -1361,7 +1371,7 @@ function App() {
             <div className="dashboard-panel__header">
               <div>
                 <p className="eyebrow">Planner</p>
-                <h1 id="planner-title">Today</h1>
+                <h1 id="planner-title">{formattedPlannerDate}</h1>
               </div>
 
               <button
