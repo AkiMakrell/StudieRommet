@@ -35,7 +35,7 @@ type PlannerSession = {
   outcome?: 'completed' | 'abandoned'
   focusScore?: number
   reviewedAt?: string
-  sheetsSyncStatus?: 'pending' | 'synced' | 'failed'
+  sheetsSyncStatus?: 'pending' | 'syncing' | 'synced' | 'failed'
   sheetsSyncedAt?: string
 }
 
@@ -225,6 +225,7 @@ function loadStoredPlannerSessions() {
             (candidate.reviewedAt === undefined || typeof candidate.reviewedAt === 'string') &&
             (candidate.sheetsSyncStatus === undefined ||
               candidate.sheetsSyncStatus === 'pending' ||
+              candidate.sheetsSyncStatus === 'syncing' ||
               candidate.sheetsSyncStatus === 'synced' ||
               candidate.sheetsSyncStatus === 'failed') &&
             (candidate.sheetsSyncedAt === undefined ||
@@ -554,6 +555,8 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plannerTrackRef = useRef<HTMLDivElement>(null)
   const plannerPointerDownRef = useRef(false)
+  const plannerSyncingSessionIdsRef = useRef<Set<string>>(new Set())
+  const plannerReviewSubmitLockRef = useRef(false)
   const authModeRef = useRef<'manual' | 'auto'>('manual')
   const authTimeoutRef = useRef<number | null>(null)
 
@@ -744,9 +747,22 @@ function App() {
     async (session: PlannerSession, tokenOverride?: string) => {
       const token = tokenOverride ?? accessTokenRef.current
 
-      if (!token || !session.outcome) {
+      if (!token || !session.outcome || session.sheetsSyncStatus === 'synced') {
         return false
       }
+
+      if (plannerSyncingSessionIdsRef.current.has(session.id)) {
+        return false
+      }
+
+      plannerSyncingSessionIdsRef.current.add(session.id)
+      setPlannerSessions((currentSessions) =>
+        currentSessions.map((currentSession) =>
+          currentSession.id === session.id
+            ? { ...currentSession, sheetsSyncStatus: 'syncing' }
+            : currentSession,
+        ),
+      )
 
       try {
         await appendPlannerSessionToSheet(token, session, todayDateKey)
@@ -778,6 +794,8 @@ function App() {
             : 'Could not save session log.',
         )
         return false
+      } finally {
+        plannerSyncingSessionIdsRef.current.delete(session.id)
       }
     },
     [todayDateKey],
@@ -792,7 +810,11 @@ function App() {
       }
 
       const pendingSessions = plannerSessions.filter(
-        (session) => session.outcome && session.sheetsSyncStatus !== 'synced',
+        (session) =>
+          session.outcome &&
+          (session.sheetsSyncStatus === undefined ||
+            session.sheetsSyncStatus === 'pending' ||
+            session.sheetsSyncStatus === 'failed'),
       )
 
       for (const session of pendingSessions) {
@@ -1274,8 +1296,12 @@ function App() {
     setIsPlannerSelecting(false)
   }
 
-  const handlePlannerReviewSubmit = () => {
+  const handlePlannerReviewSubmit = async () => {
     if (!plannerReviewSession) {
+      return
+    }
+
+    if (plannerReviewSubmitLockRef.current) {
       return
     }
 
@@ -1284,13 +1310,15 @@ function App() {
       return
     }
 
+    plannerReviewSubmitLockRef.current = true
+
     const reviewedSession: PlannerSession = {
       ...plannerReviewSession,
       outcome: plannerReviewOutcome,
       focusScore:
         plannerReviewOutcome === 'completed' ? plannerReviewFocusScore : undefined,
       reviewedAt: new Date().toISOString(),
-      sheetsSyncStatus: 'pending',
+      sheetsSyncStatus: accessTokenRef.current ? 'syncing' : 'pending',
       sheetsSyncedAt: undefined,
     }
 
@@ -1304,12 +1332,14 @@ function App() {
     setPlannerReviewError('')
 
     if (accessTokenRef.current) {
-      void syncPlannerSessionToSheets(reviewedSession)
+      await syncPlannerSessionToSheets(reviewedSession)
+      plannerReviewSubmitLockRef.current = false
       return
     }
 
     setStatusMessage('Session saved locally. Connect Google Drive to sync it to Google Sheets.')
     connectDrive()
+    plannerReviewSubmitLockRef.current = false
   }
 
   const uploadButtonLabel = accessToken
