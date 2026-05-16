@@ -358,7 +358,8 @@
 }
 
 .planner-session strong,
-.planner-session span {
+.planner-session span,
+.planner-session__note {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -373,6 +374,12 @@
   color: var(--mole);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
+}
+
+.planner-session__note {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.8rem;
 }
 
 .planner-now {
@@ -433,6 +440,14 @@
   display: inline-flex;
   color: var(--mole);
   font-size: 0.9rem;
+}
+
+.planner-setup-dialog {
+  width: min(100%, 32rem);
+}
+
+.planner-setup-dialog__error {
+  color: var(--burgundy);
 }
 
 .note-page__header {

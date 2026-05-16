@@ -27,7 +27,8 @@ type PendingUploadItem = {
 
 type PlannerSession = {
   id: string
-  title: string
+  subject: string
+  note: string
   startMinutes: number
   endMinutes: number
 }
@@ -380,6 +381,12 @@ function App() {
   const [pendingUploads, setPendingUploads] = useState<PendingUploadItem[]>([])
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
   const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>([])
+  const [isPlannerSetupOpen, setIsPlannerSetupOpen] = useState(false)
+  const [plannerSubjectInput, setPlannerSubjectInput] = useState('')
+  const [plannerNoteInput, setPlannerNoteInput] = useState('')
+  const [plannerPendingSubject, setPlannerPendingSubject] = useState('')
+  const [plannerPendingNote, setPlannerPendingNote] = useState('')
+  const [plannerSetupError, setPlannerSetupError] = useState('')
   const [isPlannerSelecting, setIsPlannerSelecting] = useState(false)
   const [plannerSelectionStage, setPlannerSelectionStage] =
     useState<PlannerSelectionStage>('start')
@@ -873,10 +880,44 @@ function App() {
         setPlannerPreviewMinutes(null)
         setPlannerSelectionStage('start')
         setPlannerSelectionStartMinutes(null)
+        setPlannerPendingSubject('')
+        setPlannerPendingNote('')
         setPlannerSelectionMessage('')
       }
       return nextValue
     })
+  }
+
+  const handleOpenPlannerSetup = () => {
+    setPlannerSubjectInput('')
+    setPlannerNoteInput('')
+    setPlannerSetupError('')
+    setIsPlannerSetupOpen(true)
+  }
+
+  const handleClosePlannerSetup = () => {
+    setIsPlannerSetupOpen(false)
+    setPlannerSetupError('')
+  }
+
+  const handleStartPlannerSelection = () => {
+    const subject = plannerSubjectInput.trim()
+
+    if (!subject) {
+      setPlannerSetupError('Add a subject.')
+      return
+    }
+
+    setPlannerPendingSubject(subject)
+    setPlannerPendingNote(plannerNoteInput.trim())
+    setPlannerSetupError('')
+    setIsPlannerSetupOpen(false)
+    setIsPlannerSelecting(true)
+    plannerPointerDownRef.current = false
+    setPlannerSelectionStage('start')
+    setPlannerSelectionStartMinutes(null)
+    setPlannerPreviewMinutes(null)
+    setPlannerSelectionMessage('Release to set the start time.')
   }
 
   const handlePlannerTrackPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -942,7 +983,7 @@ function App() {
     const nextSessionEnd =
       Math.max(plannerSelectionStartMinutes, slotMinutes) + PLANNER_STEP_MINUTES
 
-    if (hasPlannerOverlap(plannerSessions, nextSessionStart, nextSessionEnd)) {
+      if (hasPlannerOverlap(plannerSessions, nextSessionStart, nextSessionEnd)) {
       setPlannerSelectionMessage('This overlaps another session.')
       return
     }
@@ -952,7 +993,8 @@ function App() {
         ...currentSessions,
         {
           id: `session-${Date.now()}`,
-          title: `Session ${currentSessions.length + 1}`,
+          subject: plannerPendingSubject,
+          note: plannerPendingNote,
           startMinutes: nextSessionStart,
           endMinutes: nextSessionEnd,
         },
@@ -960,6 +1002,8 @@ function App() {
     )
     setPlannerSelectionStage('start')
     setPlannerSelectionStartMinutes(null)
+    setPlannerPendingSubject('')
+    setPlannerPendingNote('')
     setPlannerSelectionMessage('')
     setIsPlannerSelecting(false)
   }
@@ -1281,7 +1325,7 @@ function App() {
               <button
                 className="upload-button"
                 type="button"
-                onClick={handleTogglePlannerSelection}
+                onClick={isPlannerSelecting ? handleTogglePlannerSelection : handleOpenPlannerSetup}
               >
                 {isPlannerSelecting ? 'Cancel' : 'Add session'}
               </button>
@@ -1323,7 +1367,8 @@ function App() {
                         className="planner-session"
                         style={{ left: `${left}%`, width: `${width}%` }}
                       >
-                        <strong>{session.title}</strong>
+                        <strong>{session.subject}</strong>
+                        {session.note ? <p className="planner-session__note">{session.note}</p> : null}
                         <span>
                           {formatTimelineTime(session.startMinutes)} -{' '}
                           {formatTimelineTime(session.endMinutes)}
@@ -1378,6 +1423,61 @@ function App() {
                 <span className="planner-selection-bar__text">
                   {plannerSelectionMessage || 'Release to choose a time.'}
                 </span>
+              </div>
+            ) : null}
+
+            {isPlannerSetupOpen ? (
+              <div className="upload-dialog-backdrop">
+                <section className="upload-dialog planner-setup-dialog" aria-labelledby="planner-setup-title">
+                  <div className="upload-dialog__header">
+                    <div>
+                      <p className="eyebrow">Planner</p>
+                      <h2 id="planner-setup-title">Add session</h2>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={handleClosePlannerSetup}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  <div className="upload-dialog__form">
+                    <label className="field">
+                      <span>Subject</span>
+                      <input
+                        type="text"
+                        list={subjects.length > 0 ? 'subject-suggestions' : undefined}
+                        placeholder={subjects.length > 0 ? 'Type or choose a subject' : 'Add subject'}
+                        value={plannerSubjectInput}
+                        onChange={(event) => setPlannerSubjectInput(event.target.value)}
+                      />
+                    </label>
+
+                    <label className="field">
+                      <span>Note</span>
+                      <textarea
+                        rows={3}
+                        placeholder="Optional"
+                        value={plannerNoteInput}
+                        onChange={(event) => setPlannerNoteInput(event.target.value)}
+                      />
+                    </label>
+
+                    {plannerSetupError ? (
+                      <p className="planner-selection-bar__text planner-setup-dialog__error">
+                        {plannerSetupError}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="upload-dialog__actions">
+                    <button className="upload-button" type="button" onClick={handleStartPlannerSelection}>
+                      Choose time
+                    </button>
+                  </div>
+                </section>
               </div>
             ) : null}
           </section>
