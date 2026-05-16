@@ -189,6 +189,10 @@ function roundUpToHour(totalMinutes: number) {
   return Math.ceil(totalMinutes / 60) * 60
 }
 
+function clampMinutes(totalMinutes: number, minMinutes: number, maxMinutes: number) {
+  return Math.min(Math.max(totalMinutes, minMinutes), maxMinutes)
+}
+
 function hasPlannerOverlap(
   sessions: PlannerSession[],
   startMinutes: number,
@@ -198,6 +202,32 @@ function hasPlannerOverlap(
     (session) =>
       startMinutes < session.endMinutes && endMinutes > session.startMinutes,
   )
+}
+
+function formatTimeInput(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+function parseTimeInput(value: string) {
+  const [hoursValue, minutesValue] = value.split(':')
+  const hours = Number(hoursValue)
+  const minutes = Number(minutesValue)
+
+  if (
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null
+  }
+
+  return hours * 60 + minutes
 }
 
 async function loadGoogleIdentityScript() {
@@ -377,6 +407,10 @@ function App() {
   const [pendingUploads, setPendingUploads] = useState<PendingUploadItem[]>([])
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
   const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>([])
+  const [isPlannerDialogOpen, setIsPlannerDialogOpen] = useState(false)
+  const [plannerSessionStart, setPlannerSessionStart] = useState('09:00')
+  const [plannerSessionEnd, setPlannerSessionEnd] = useState('10:00')
+  const [plannerDialogError, setPlannerDialogError] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Connect Google Drive to upload files across devices.',
@@ -453,6 +487,9 @@ function App() {
 
     return ((nowInMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
   }, [now, plannerEndMinutes, plannerStartMinutes, plannerTotalMinutes])
+
+  const plannerTimeMin = formatTimeInput(plannerStartMinutes)
+  const plannerTimeMax = formatTimeInput(plannerEndMinutes)
 
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
@@ -822,58 +859,66 @@ function App() {
     }
   }
 
-  const handleAddPlannerSession = () => {
-    setPlannerSessions((currentSessions) => {
-      const nowInMinutes = now.getHours() * 60 + now.getMinutes()
-      const firstPossibleStart = Math.max(
-        plannerStartMinutes,
-        roundUpToHour(nowInMinutes),
+  const handleOpenPlannerDialog = () => {
+    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
+    const latestStart = plannerEndMinutes - SESSION_DURATION_MINUTES
+    const suggestedStart = clampMinutes(
+      Math.max(plannerStartMinutes, roundUpToHour(nowInMinutes)),
+      plannerStartMinutes,
+      latestStart,
+    )
+
+    setPlannerSessionStart(formatTimeInput(suggestedStart))
+    setPlannerSessionEnd(formatTimeInput(suggestedStart + SESSION_DURATION_MINUTES))
+    setPlannerDialogError('')
+    setIsPlannerDialogOpen(true)
+  }
+
+  const handleClosePlannerDialog = () => {
+    setIsPlannerDialogOpen(false)
+    setPlannerDialogError('')
+  }
+
+  const handleCreatePlannerSession = () => {
+    const startMinutes = parseTimeInput(plannerSessionStart)
+    const endMinutes = parseTimeInput(plannerSessionEnd)
+
+    if (startMinutes === null || endMinutes === null) {
+      setPlannerDialogError('Enter valid times.')
+      return
+    }
+
+    if (startMinutes < plannerStartMinutes || endMinutes > plannerEndMinutes) {
+      setPlannerDialogError(
+        `${plannerTimeMin} to ${plannerTimeMax} only.`,
       )
-      const latestStart = plannerEndMinutes - SESSION_DURATION_MINUTES
+      return
+    }
 
-      let startMinutes = firstPossibleStart
+    if (endMinutes <= startMinutes) {
+      setPlannerDialogError('End time must be after start time.')
+      return
+    }
 
-      while (
-        startMinutes <= latestStart &&
-        hasPlannerOverlap(
-          currentSessions,
+    if (hasPlannerOverlap(plannerSessions, startMinutes, endMinutes)) {
+      setPlannerDialogError('This overlaps another session.')
+      return
+    }
+
+    setPlannerSessions((currentSessions) =>
+      [
+        ...currentSessions,
+        {
+          id: `session-${Date.now()}`,
+          title: `Session ${currentSessions.length + 1}`,
           startMinutes,
-          startMinutes + SESSION_DURATION_MINUTES,
-        )
-      ) {
-        startMinutes += SESSION_DURATION_MINUTES
-      }
-
-      if (startMinutes > latestStart) {
-        startMinutes = plannerStartMinutes
-
-        while (
-          startMinutes <= latestStart &&
-          hasPlannerOverlap(
-            currentSessions,
-            startMinutes,
-            startMinutes + SESSION_DURATION_MINUTES,
-          )
-        ) {
-          startMinutes += SESSION_DURATION_MINUTES
-        }
-      }
-
-      if (startMinutes > latestStart) {
-        return currentSessions
-      }
-
-      const nextSession: PlannerSession = {
-        id: `session-${Date.now()}`,
-        title: `Session ${currentSessions.length + 1}`,
-        startMinutes,
-        endMinutes: startMinutes + SESSION_DURATION_MINUTES,
-      }
-
-      return [...currentSessions, nextSession].sort(
+          endMinutes,
+        },
+      ].sort(
         (left, right) => left.startMinutes - right.startMinutes,
-      )
-    })
+      ),
+    )
+    handleClosePlannerDialog()
   }
 
   const uploadButtonLabel = accessToken
@@ -1193,7 +1238,7 @@ function App() {
               <button
                 className="upload-button"
                 type="button"
-                onClick={handleAddPlannerSession}
+                onClick={handleOpenPlannerDialog}
               >
                 Add session
               </button>
@@ -1244,6 +1289,60 @@ function App() {
                 </div>
               </div>
             </div>
+
+            {isPlannerDialogOpen ? (
+              <div className="upload-dialog-backdrop">
+                <section className="upload-dialog planner-dialog" aria-labelledby="planner-dialog-title">
+                  <div className="upload-dialog__header">
+                    <div>
+                      <p className="eyebrow">Planner</p>
+                      <h2 id="planner-dialog-title">Add session</h2>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={handleClosePlannerDialog}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  <div className="upload-dialog__form planner-dialog__form">
+                    <label className="field">
+                      <span>Start</span>
+                      <input
+                        type="time"
+                        min={plannerTimeMin}
+                        max={plannerTimeMax}
+                        value={plannerSessionStart}
+                        onChange={(event) => setPlannerSessionStart(event.target.value)}
+                      />
+                    </label>
+
+                    <label className="field">
+                      <span>End</span>
+                      <input
+                        type="time"
+                        min={plannerTimeMin}
+                        max={plannerTimeMax}
+                        value={plannerSessionEnd}
+                        onChange={(event) => setPlannerSessionEnd(event.target.value)}
+                      />
+                    </label>
+
+                    {plannerDialogError ? (
+                      <p className="planner-dialog__error">{plannerDialogError}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="upload-dialog__actions">
+                    <button className="upload-button" type="button" onClick={handleCreatePlannerSession}>
+                      Save session
+                    </button>
+                  </div>
+                </section>
+              </div>
+            ) : null}
           </section>
         ) : (
           <section className="note-page" aria-labelledby="note-page-title">
