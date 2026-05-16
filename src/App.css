@@ -64,6 +64,12 @@
   border-radius: 999px;
 }
 
+.upload-button:disabled,
+.secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
 .upload-button {
   background: var(--burgundy);
   color: #fff7f4;
@@ -217,11 +223,26 @@
   text-align: center;
 }
 
+.dropzone.is-active {
+  background: rgba(111, 29, 58, 0.08);
+  border-color: rgba(111, 29, 58, 0.45);
+}
+
 .dropzone-title {
   margin: 0;
   color: var(--ink);
   font-size: 1.2rem;
   font-weight: 600;
+}
+
+.dropzone-copy {
+  margin: 0;
+  color: var(--mole);
+  max-width: 20rem;
+}
+
+.file-input {
+  display: none;
 }
 
 .note-page {
@@ -290,6 +311,17 @@
 .documents-panel__header h2,
 .document-card h3 {
   margin: 0;
+}
+
+.document-link {
+  color: var(--ink);
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.document-link:hover {
+  color: var(--burgundy);
 }
 
 .documents-panel__header {

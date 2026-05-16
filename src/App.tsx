@@ -1,9 +1,47 @@
-import { useEffect, useMemo, useState } from 'react'
+import type { ChangeEvent, DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-function getNow() {
-  return new Date()
+type CurrentView = 'library' | 'note'
+
+type DocumentItem = {
+  title: string
+  subject: string
+  type: string
+  meta: string
+  tags: string[]
+  link?: string
 }
+
+type TokenResponse = {
+  access_token?: string
+  error?: string
+}
+
+type TokenClient = {
+  requestAccessToken: (overrideConfig?: { prompt?: string }) => void
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: {
+            client_id: string
+            scope: string
+            callback: (response: TokenResponse) => void
+          }) => TokenClient
+        }
+      }
+    }
+  }
+}
+
+const GOOGLE_CLIENT_ID =
+  '347804918623-t28vi7icqkvqr7f8geloto0ncogj13up.apps.googleusercontent.com'
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
+const DRIVE_FOLDER_NAME = 'StudieRommet'
 
 const navItems = ['Dashboard', 'Library', 'Planner', 'Sessions', 'Insights']
 
@@ -17,7 +55,7 @@ const subjects = [
 
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
 
-const documents = [
+const initialDocuments: DocumentItem[] = [
   {
     title: 'Seminar prep outline',
     subject: 'Management',
@@ -48,9 +86,179 @@ const documents = [
   },
 ]
 
+function getNow() {
+  return new Date()
+}
+
+function parseTags(tagValue: string) {
+  return tagValue
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
+
+async function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.oauth2) {
+    return
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[data-google-identity="true"]',
+    )
+
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(), { once: true })
+      existingScript.addEventListener(
+        'error',
+        () => reject(new Error('Failed to load Google Identity Services.')),
+        { once: true },
+      )
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.dataset.googleIdentity = 'true'
+    script.onload = () => resolve()
+    script.onerror = () =>
+      reject(new Error('Failed to load Google Identity Services.'))
+    document.head.append(script)
+  })
+}
+
+async function driveRequest<T>(
+  accessToken: string,
+  url: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(init?.headers ?? {}),
+    },
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(errorText || 'Google Drive request failed.')
+  }
+
+  return (await response.json()) as T
+}
+
+async function ensureDriveFolder(accessToken: string) {
+  const cachedFolderId = localStorage.getItem('studierommet-drive-folder-id')
+
+  if (cachedFolderId) {
+    return cachedFolderId
+  }
+
+  const query = encodeURIComponent(
+    `mimeType = 'application/vnd.google-apps.folder' and name = '${DRIVE_FOLDER_NAME}' and trashed = false`,
+  )
+
+  const searchResult = await driveRequest<{
+    files: Array<{ id: string }>
+  }>(
+    accessToken,
+    `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id)&spaces=drive`,
+  )
+
+  if (searchResult.files.length > 0) {
+    const folderId = searchResult.files[0].id
+    localStorage.setItem('studierommet-drive-folder-id', folderId)
+    return folderId
+  }
+
+  const createdFolder = await driveRequest<{ id: string }>(
+    accessToken,
+    'https://www.googleapis.com/drive/v3/files',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: DRIVE_FOLDER_NAME,
+        mimeType: 'application/vnd.google-apps.folder',
+      }),
+    },
+  )
+
+  localStorage.setItem('studierommet-drive-folder-id', createdFolder.id)
+  return createdFolder.id
+}
+
+async function uploadFileToDrive(
+  accessToken: string,
+  file: File,
+  folderId: string,
+  subject: string,
+  type: string,
+  tags: string[],
+) {
+  const formData = new FormData()
+
+  formData.append(
+    'metadata',
+    new Blob(
+      [
+        JSON.stringify({
+          name: file.name,
+          parents: [folderId],
+          appProperties: {
+            subject,
+            type,
+            tags: tags.join(', '),
+          },
+        }),
+      ],
+      { type: 'application/json' },
+    ),
+  )
+  formData.append('file', file)
+
+  return await driveRequest<{
+    id: string
+    name: string
+    webViewLink: string
+  }>(
+    accessToken,
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+    {
+      method: 'POST',
+      body: formData,
+    },
+  )
+}
+
 function App() {
   const [now, setNow] = useState(getNow)
-  const [currentView, setCurrentView] = useState<'library' | 'note'>('library')
+  const [currentView, setCurrentView] = useState<CurrentView>('library')
+  const [documents, setDocuments] = useState(initialDocuments)
+  const [selectedSubject, setSelectedSubject] = useState(subjects[0].name)
+  const [selectedType, setSelectedType] = useState('Notes')
+  const [tagValue, setTagValue] = useState('')
+  const [accessToken, setAccessToken] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState(
+    'Connect Google Drive to upload files across devices.',
+  )
+  const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isDragActive, setIsDragActive] = useState(false)
+
+  const tokenClientRef = useRef<TokenClient | null>(null)
+  const accessTokenRef = useRef<string | null>(null)
+  const pendingFilesRef = useRef<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    accessTokenRef.current = accessToken
+  }, [accessToken])
 
   useEffect(() => {
     const scheduleUpdate = () => {
@@ -80,6 +288,169 @@ function App() {
     [now],
   )
 
+  const uploadFiles = useCallback(async (
+    files: File[],
+    tokenOverride?: string,
+  ): Promise<void> => {
+    const token = tokenOverride ?? accessTokenRef.current
+
+    if (!token || files.length === 0) {
+      return
+    }
+
+    try {
+      setIsUploading(true)
+      setStatusMessage(
+        `Uploading ${files.length} file${files.length > 1 ? 's' : ''} to Google Drive...`,
+      )
+
+      const folderId = await ensureDriveFolder(token)
+      const tags = parseTags(tagValue)
+
+      const uploadedDocuments = await Promise.all(
+        files.map(async (file) => {
+          const uploadedFile = await uploadFileToDrive(
+            token,
+            file,
+            folderId,
+            selectedSubject,
+            selectedType,
+            tags,
+          )
+
+          return {
+            title: uploadedFile.name,
+            subject: selectedSubject,
+            type: selectedType,
+            meta: 'Uploaded just now',
+            tags,
+            link: uploadedFile.webViewLink,
+          } satisfies DocumentItem
+        }),
+      )
+
+      setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments])
+      pendingFilesRef.current = []
+      setStatusMessage(
+        `${files.length} file${files.length > 1 ? 's' : ''} uploaded to Google Drive.`,
+      )
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? `Upload failed: ${error.message}`
+          : 'Upload failed.',
+      )
+    } finally {
+      setIsUploading(false)
+      setIsDragActive(false)
+    }
+  }, [selectedSubject, selectedType, tagValue])
+
+  useEffect(() => {
+    const initializeGoogle = async () => {
+      try {
+        await loadGoogleIdentityScript()
+
+        if (!window.google?.accounts?.oauth2) {
+          throw new Error('Google Identity Services did not load correctly.')
+        }
+
+        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: DRIVE_SCOPE,
+          callback: (response) => {
+            setIsAuthenticating(false)
+
+            if (response.error || !response.access_token) {
+              setStatusMessage('Google Drive sign-in did not complete.')
+              return
+            }
+
+            setAccessToken(response.access_token)
+            setStatusMessage('Google Drive connected.')
+
+            if (pendingFilesRef.current.length > 0) {
+              void uploadFiles(pendingFilesRef.current, response.access_token)
+            }
+          },
+        })
+      } catch (error) {
+        setStatusMessage(
+          error instanceof Error
+            ? error.message
+            : 'Could not load Google Drive tools.',
+        )
+      }
+    }
+
+    void initializeGoogle()
+  }, [uploadFiles])
+
+  const connectDrive = () => {
+    if (!tokenClientRef.current) {
+      setStatusMessage('Google Drive sign-in is still loading.')
+      return
+    }
+
+    setIsAuthenticating(true)
+    setStatusMessage('Connecting to Google Drive...')
+    tokenClientRef.current.requestAccessToken({
+      prompt: accessTokenRef.current ? '' : 'consent',
+    })
+  }
+
+  const handleIncomingFiles = (files: File[]) => {
+    if (files.length === 0) {
+      return
+    }
+
+    if (accessTokenRef.current) {
+      void uploadFiles(files)
+      return
+    }
+
+    pendingFilesRef.current = files
+    connectDrive()
+  }
+
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const incomingFiles = Array.from(event.target.files ?? [])
+    handleIncomingFiles(incomingFiles)
+    event.target.value = ''
+  }
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const droppedFiles = Array.from(event.dataTransfer.files)
+    handleIncomingFiles(droppedFiles)
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    if (!isDragActive) {
+      setIsDragActive(true)
+    }
+  }
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return
+    }
+
+    setIsDragActive(false)
+  }
+
+  const handleUploadButtonClick = () => {
+    if (!accessTokenRef.current) {
+      connectDrive()
+      return
+    }
+
+    fileInputRef.current?.click()
+  }
+
+  const uploadButtonLabel = accessToken ? 'Upload' : 'Connect Drive'
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -108,8 +479,13 @@ function App() {
             New note
           </button>
 
-          <button className="upload-button" type="button">
-            Upload
+          <button
+            className="upload-button"
+            type="button"
+            onClick={handleUploadButtonClick}
+            disabled={isAuthenticating || isUploading}
+          >
+            {isUploading ? 'Uploading...' : isAuthenticating ? 'Connecting...' : uploadButtonLabel}
           </button>
 
           <time className="clock" dateTime={now.toISOString()} aria-live="polite">
@@ -153,17 +529,38 @@ function App() {
 
             <div className="library-grid">
               <section className="upload-panel">
-                <div className="dropzone">
+                <div
+                  className={isDragActive ? 'dropzone is-active' : 'dropzone'}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                >
                   <p className="dropzone-title">Drop files here</p>
-                  <button className="secondary-button" type="button">
-                    Choose files
+                  <p className="dropzone-copy">{statusMessage}</p>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={handleUploadButtonClick}
+                    disabled={isAuthenticating || isUploading}
+                  >
+                    {uploadButtonLabel}
                   </button>
+                  <input
+                    ref={fileInputRef}
+                    className="file-input"
+                    type="file"
+                    multiple
+                    onChange={handleFileInputChange}
+                  />
                 </div>
 
                 <div className="upload-meta">
                   <label className="field">
                     <span>Subject</span>
-                    <select defaultValue="Microeconomics">
+                    <select
+                      value={selectedSubject}
+                      onChange={(event) => setSelectedSubject(event.target.value)}
+                    >
                       {subjects.map((subject) => (
                         <option key={subject.name} value={subject.name}>
                           {subject.name}
@@ -174,7 +571,10 @@ function App() {
 
                   <label className="field">
                     <span>Type</span>
-                    <select defaultValue="Notes">
+                    <select
+                      value={selectedType}
+                      onChange={(event) => setSelectedType(event.target.value)}
+                    >
                       <option>Notes</option>
                       <option>Lecture</option>
                       <option>Assignment</option>
@@ -184,7 +584,12 @@ function App() {
 
                   <label className="field">
                     <span>Tags</span>
-                    <input type="text" placeholder="Week 4, formulas" />
+                    <input
+                      type="text"
+                      placeholder="Week 4, formulas"
+                      value={tagValue}
+                      onChange={(event) => setTagValue(event.target.value)}
+                    />
                   </label>
                 </div>
               </section>
@@ -196,10 +601,21 @@ function App() {
 
                 <div className="document-list">
                   {documents.map((document) => (
-                    <article key={document.title} className="document-card">
+                    <article key={`${document.title}-${document.meta}`} className="document-card">
                       <div className="document-card__top">
                         <div>
-                          <h3>{document.title}</h3>
+                          {document.link ? (
+                            <a
+                              className="document-link"
+                              href={document.link}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              {document.title}
+                            </a>
+                          ) : (
+                            <h3>{document.title}</h3>
+                          )}
                           <p>{document.subject}</p>
                         </div>
                         <span className="document-type">{document.type}</span>
