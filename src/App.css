@@ -183,11 +183,21 @@
   gap: 0.6rem;
 }
 
+.panel-filter-bar {
+  padding: 0 1.5rem 0.5rem;
+}
+
 .filter-chip {
   padding: 0.6rem 0.9rem;
+  border: 1px solid transparent;
   border-radius: 999px;
   background: rgba(104, 86, 78, 0.06);
   color: var(--mole);
+}
+
+.area-filter-chip {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--line);
 }
 
 .library-grid {
@@ -363,7 +373,7 @@
 }
 
 .planner-session strong,
-.planner-session span,
+.planner-session__time,
 .planner-session__note {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -375,7 +385,7 @@
   font-size: 0.95rem;
 }
 
-.planner-session span {
+.planner-session__time {
   color: var(--mole);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
@@ -463,14 +473,21 @@
   margin-bottom: 0.5rem;
 }
 
-.planner-progress__header strong,
-.planner-progress__header span,
+.planner-progress__title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.planner-progress__title strong,
+.planner-progress__time,
 .planner-progress__note {
   margin: 0;
   color: var(--ink);
 }
 
-.planner-progress__header span {
+.planner-progress__time {
   color: var(--mole);
   font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
@@ -585,7 +602,7 @@
 
 .note-page__meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1rem;
   margin-bottom: 1rem;
 }
@@ -629,6 +646,33 @@
 
 .document-link:hover {
   color: var(--burgundy);
+}
+
+.area-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.area-pill--small {
+  padding: 0.22rem 0.55rem;
+  font-size: 0.68rem;
+}
+
+.document-card__context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 0.65rem;
 }
 
 .documents-panel__header {

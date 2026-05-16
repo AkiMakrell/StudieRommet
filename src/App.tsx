@@ -11,6 +11,7 @@ type CurrentView = 'library' | 'planner' | 'note'
 
 type DocumentItem = {
   id?: string
+  area: string
   title: string
   subject: string
   type: string
@@ -25,8 +26,14 @@ type PendingUploadItem = {
   displayName: string
 }
 
+type SubjectDefinition = {
+  area: string
+  name: string
+}
+
 type PlannerSession = {
   id: string
+  area?: string
   subject: string
   note: string
   startMinutes: number
@@ -79,11 +86,16 @@ const GOOGLE_SHEETS_SPREADSHEET_ID = '1YgnlfTvrEJC2Y0vTL5zI95yii6LBbhAXeWeVxTpNy
 const GOOGLE_SHEETS_TAB_NAME = 'Sessions'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
 const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
+const AREAS_STORAGE_KEY = 'studierommet-areas'
 const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
+const SUBJECT_DEFINITIONS_STORAGE_KEY = 'studierommet-subject-definitions'
 const PLANNER_SESSIONS_STORAGE_KEY = 'studierommet-planner-sessions'
 const PLANNER_START_HOUR = 6
 const PLANNER_END_HOUR = 22
 const PLANNER_STEP_MINUTES = 5
+const DEFAULT_AREA_NAME = 'Uni'
+const DEFAULT_AREA_NAMES = [DEFAULT_AREA_NAME, 'Business'] as const
+const ALL_AREAS_FILTER = 'All'
 
 const navItems: Array<{ label: string; view?: CurrentView }> = [
   { label: 'Dashboard' },
@@ -93,15 +105,47 @@ const navItems: Array<{ label: string; view?: CurrentView }> = [
   { label: 'Insights' },
 ]
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
-const subjectPalette = [
-  { background: 'rgba(220, 53, 69, 0.18)', border: 'rgba(220, 53, 69, 0.55)' },
-  { background: 'rgba(13, 110, 253, 0.16)', border: 'rgba(13, 110, 253, 0.5)' },
-  { background: 'rgba(25, 135, 84, 0.18)', border: 'rgba(25, 135, 84, 0.52)' },
-  { background: 'rgba(253, 126, 20, 0.18)', border: 'rgba(253, 126, 20, 0.52)' },
-  { background: 'rgba(111, 66, 193, 0.18)', border: 'rgba(111, 66, 193, 0.52)' },
-  { background: 'rgba(214, 51, 132, 0.18)', border: 'rgba(214, 51, 132, 0.52)' },
-  { background: 'rgba(12, 166, 120, 0.18)', border: 'rgba(12, 166, 120, 0.52)' },
-  { background: 'rgba(102, 16, 242, 0.18)', border: 'rgba(102, 16, 242, 0.52)' },
+const areaToneFamilies = [
+  {
+    pillBackground: 'rgba(111, 29, 58, 0.1)',
+    pillBorder: 'rgba(111, 29, 58, 0.16)',
+    pillText: '#6f1d3a',
+    sessionVariants: [
+      { background: 'rgba(111, 29, 58, 0.12)', border: 'rgba(111, 29, 58, 0.34)' },
+      { background: 'rgba(151, 56, 89, 0.12)', border: 'rgba(151, 56, 89, 0.34)' },
+      { background: 'rgba(183, 91, 120, 0.14)', border: 'rgba(183, 91, 120, 0.34)' },
+    ],
+  },
+  {
+    pillBackground: 'rgba(104, 86, 78, 0.1)',
+    pillBorder: 'rgba(104, 86, 78, 0.16)',
+    pillText: '#68564e',
+    sessionVariants: [
+      { background: 'rgba(104, 86, 78, 0.12)', border: 'rgba(104, 86, 78, 0.32)' },
+      { background: 'rgba(137, 113, 101, 0.13)', border: 'rgba(137, 113, 101, 0.32)' },
+      { background: 'rgba(167, 141, 126, 0.14)', border: 'rgba(167, 141, 126, 0.34)' },
+    ],
+  },
+  {
+    pillBackground: 'rgba(64, 108, 138, 0.1)',
+    pillBorder: 'rgba(64, 108, 138, 0.16)',
+    pillText: '#406c8a',
+    sessionVariants: [
+      { background: 'rgba(64, 108, 138, 0.12)', border: 'rgba(64, 108, 138, 0.32)' },
+      { background: 'rgba(88, 132, 162, 0.13)', border: 'rgba(88, 132, 162, 0.34)' },
+      { background: 'rgba(117, 153, 177, 0.14)', border: 'rgba(117, 153, 177, 0.34)' },
+    ],
+  },
+  {
+    pillBackground: 'rgba(51, 118, 89, 0.1)',
+    pillBorder: 'rgba(51, 118, 89, 0.16)',
+    pillText: '#337659',
+    sessionVariants: [
+      { background: 'rgba(51, 118, 89, 0.12)', border: 'rgba(51, 118, 89, 0.32)' },
+      { background: 'rgba(76, 142, 112, 0.13)', border: 'rgba(76, 142, 112, 0.34)' },
+      { background: 'rgba(108, 168, 137, 0.14)', border: 'rgba(108, 168, 137, 0.34)' },
+    ],
+  },
 ] as const
 
 const typeIndicatorMap: Record<string, { symbol: string; label: string }> = {
@@ -119,6 +163,27 @@ function getNow() {
   return new Date()
 }
 
+function normalizeLabel(value: string) {
+  return value.trim()
+}
+
+function hashValue(value: string) {
+  return Array.from(value).reduce((total, character) => total + character.charCodeAt(0), 0)
+}
+
+function sortAreaNames(areaNames: string[]) {
+  const normalized = Array.from(
+    new Set(areaNames.map(normalizeLabel).filter(Boolean)),
+  )
+
+  const defaults = DEFAULT_AREA_NAMES.filter((area) => normalized.includes(area))
+  const customAreas = normalized
+    .filter((area) => !DEFAULT_AREA_NAMES.includes(area as (typeof DEFAULT_AREA_NAMES)[number]))
+    .sort((left, right) => left.localeCompare(right))
+
+  return [...defaults, ...customAreas]
+}
+
 function formatDateKey(date: Date) {
   const year = date.getFullYear()
   const month = `${date.getMonth() + 1}`.padStart(2, '0')
@@ -129,6 +194,10 @@ function formatDateKey(date: Date) {
 
 function getPlannerSessionDateKey(session: PlannerSession, fallbackDateKey: string) {
   return session.sessionDate ?? fallbackDateKey
+}
+
+function getPlannerSessionArea(session: PlannerSession) {
+  return normalizeLabel(session.area ?? '') || DEFAULT_AREA_NAME
 }
 
 function isPlannerSessionReadyForReview(
@@ -156,17 +225,111 @@ function parseTags(tagValue: string) {
     .filter(Boolean)
 }
 
-function mergeSubjects(currentSubjects: string[], incomingSubjects: string[]) {
-  return Array.from(
-    new Set(
-      [...currentSubjects, ...incomingSubjects]
-        .map((subject) => subject.trim())
-        .filter(Boolean),
-    ),
-  ).sort((left, right) => left.localeCompare(right))
+function mergeAreas(currentAreas: string[], incomingAreas: string[]) {
+  return sortAreaNames([...currentAreas, ...incomingAreas])
 }
 
-function loadStoredSubjects() {
+function mergeSubjectDefinitions(
+  currentDefinitions: SubjectDefinition[],
+  incomingDefinitions: SubjectDefinition[],
+) {
+  const uniqueDefinitions = new Map<string, SubjectDefinition>()
+
+  for (const definition of [...currentDefinitions, ...incomingDefinitions]) {
+    const area = normalizeLabel(definition.area)
+    const name = normalizeLabel(definition.name)
+
+    if (!area || !name) {
+      continue
+    }
+
+    uniqueDefinitions.set(`${area.toLowerCase()}::${name.toLowerCase()}`, { area, name })
+  }
+
+  return Array.from(uniqueDefinitions.values()).sort((left, right) => {
+    if (left.area !== right.area) {
+      return left.area.localeCompare(right.area)
+    }
+
+    return left.name.localeCompare(right.name)
+  })
+}
+
+function getSubjectArea(subjectDefinitions: SubjectDefinition[], subjectName: string) {
+  const normalizedSubject = normalizeLabel(subjectName).toLowerCase()
+
+  if (!normalizedSubject) {
+    return DEFAULT_AREA_NAME
+  }
+
+  return (
+    subjectDefinitions.find(
+      (definition) => definition.name.toLowerCase() === normalizedSubject,
+    )?.area ?? DEFAULT_AREA_NAME
+  )
+}
+
+function getSubjectSuggestions(
+  subjectDefinitions: SubjectDefinition[],
+  areaName: string,
+) {
+  const normalizedArea = normalizeLabel(areaName)
+
+  return subjectDefinitions
+    .filter((definition) =>
+      normalizedArea ? definition.area === normalizedArea : true,
+    )
+    .map((definition) => definition.name)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+function loadStoredAreas() {
+  const storedAreas = localStorage.getItem(AREAS_STORAGE_KEY)
+
+  if (!storedAreas) {
+    return [...DEFAULT_AREA_NAMES]
+  }
+
+  try {
+    const parsedAreas = JSON.parse(storedAreas) as unknown
+
+    if (Array.isArray(parsedAreas)) {
+      return mergeAreas(
+        [...DEFAULT_AREA_NAMES],
+        parsedAreas.filter((area): area is string => typeof area === 'string'),
+      )
+    }
+  } catch {
+    localStorage.removeItem(AREAS_STORAGE_KEY)
+  }
+
+  return [...DEFAULT_AREA_NAMES]
+}
+
+function loadStoredSubjectDefinitions() {
+  const storedDefinitions = localStorage.getItem(SUBJECT_DEFINITIONS_STORAGE_KEY)
+
+  if (storedDefinitions) {
+    try {
+      const parsedDefinitions = JSON.parse(storedDefinitions) as unknown
+
+      if (Array.isArray(parsedDefinitions)) {
+        return mergeSubjectDefinitions(
+          [],
+          parsedDefinitions.filter(
+            (definition): definition is SubjectDefinition =>
+              typeof definition === 'object' &&
+              definition !== null &&
+              typeof (definition as SubjectDefinition).area === 'string' &&
+              typeof (definition as SubjectDefinition).name === 'string',
+          ),
+        )
+      }
+    } catch {
+      localStorage.removeItem(SUBJECT_DEFINITIONS_STORAGE_KEY)
+    }
+  }
+
   const storedSubjects = localStorage.getItem(SUBJECTS_STORAGE_KEY)
 
   if (!storedSubjects) {
@@ -177,9 +340,11 @@ function loadStoredSubjects() {
     const parsedSubjects = JSON.parse(storedSubjects) as unknown
 
     if (Array.isArray(parsedSubjects)) {
-      return mergeSubjects(
+      return mergeSubjectDefinitions(
         [],
-        parsedSubjects.filter((subject): subject is string => typeof subject === 'string'),
+        parsedSubjects
+          .filter((subject): subject is string => typeof subject === 'string')
+          .map((subject) => ({ area: DEFAULT_AREA_NAME, name: subject })),
       )
     }
   } catch {
@@ -210,6 +375,7 @@ function loadStoredPlannerSessions() {
 
           return (
             typeof candidate.id === 'string' &&
+            (candidate.area === undefined || typeof candidate.area === 'string') &&
             typeof candidate.subject === 'string' &&
             typeof candidate.note === 'string' &&
             typeof candidate.startMinutes === 'number' &&
@@ -262,19 +428,39 @@ function createPendingUploadItems(files: File[]) {
   }))
 }
 
-function getSubjectTone(subject: string) {
-  const normalizedSubject = subject.trim().toLowerCase()
+function getAreaFamilyIndex(areaName: string) {
+  const normalizedArea = normalizeLabel(areaName).toLowerCase()
+
+  if (normalizedArea === 'uni') {
+    return 0
+  }
+
+  if (normalizedArea === 'business') {
+    return 1
+  }
+
+  return hashValue(normalizedArea || DEFAULT_AREA_NAME.toLowerCase()) % areaToneFamilies.length
+}
+
+function getAreaTone(areaName: string) {
+  const family = areaToneFamilies[getAreaFamilyIndex(areaName)]
+
+  return {
+    background: family.pillBackground,
+    border: family.pillBorder,
+    text: family.pillText,
+  }
+}
+
+function getSubjectTone(areaName: string, subjectName: string) {
+  const normalizedSubject = normalizeLabel(subjectName).toLowerCase()
 
   if (!normalizedSubject || normalizedSubject === 'unsorted') {
     return { background: 'rgba(108, 117, 125, 0.16)', border: 'rgba(108, 117, 125, 0.38)' }
   }
 
-  const hash = Array.from(normalizedSubject).reduce(
-    (total, character) => total + character.charCodeAt(0),
-    0,
-  )
-
-  return subjectPalette[hash % subjectPalette.length]
+  const family = areaToneFamilies[getAreaFamilyIndex(areaName)]
+  return family.sessionVariants[hashValue(normalizedSubject) % family.sessionVariants.length]
 }
 
 function getTypeIndicator(type: string) {
@@ -406,6 +592,7 @@ async function uploadFileToDrive(
   accessToken: string,
   file: File,
   folderId: string,
+  area: string,
   subject: string,
   type: string,
   tags: string[],
@@ -421,6 +608,7 @@ async function uploadFileToDrive(
           name: file.name,
           parents: [folderId],
           appProperties: {
+            area,
             subject,
             type,
             tags: tags.join(', '),
@@ -516,16 +704,23 @@ function App() {
   const [now, setNow] = useState(getNow)
   const [currentView, setCurrentView] = useState<CurrentView>('library')
   const [documents, setDocuments] = useState<DocumentItem[]>([])
-  const [subjects, setSubjects] = useState<string[]>(loadStoredSubjects)
+  const [areas, setAreas] = useState<string[]>(loadStoredAreas)
+  const [subjectDefinitions, setSubjectDefinitions] = useState<SubjectDefinition[]>(
+    loadStoredSubjectDefinitions,
+  )
+  const [uploadAreaInput, setUploadAreaInput] = useState(DEFAULT_AREA_NAME)
   const [uploadSubjectInput, setUploadSubjectInput] = useState('')
   const [selectedType, setSelectedType] = useState('Notes')
   const [tagValue, setTagValue] = useState('')
   const [pendingUploads, setPendingUploads] = useState<PendingUploadItem[]>([])
+  const [noteAreaInput, setNoteAreaInput] = useState(DEFAULT_AREA_NAME)
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
   const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>(loadStoredPlannerSessions)
   const [isPlannerSetupOpen, setIsPlannerSetupOpen] = useState(false)
+  const [plannerAreaInput, setPlannerAreaInput] = useState(DEFAULT_AREA_NAME)
   const [plannerSubjectInput, setPlannerSubjectInput] = useState('')
   const [plannerNoteInput, setPlannerNoteInput] = useState('')
+  const [plannerPendingArea, setPlannerPendingArea] = useState(DEFAULT_AREA_NAME)
   const [plannerPendingSubject, setPlannerPendingSubject] = useState('')
   const [plannerPendingNote, setPlannerPendingNote] = useState('')
   const [plannerSetupError, setPlannerSetupError] = useState('')
@@ -541,6 +736,8 @@ function App() {
   >('')
   const [plannerReviewFocusScore, setPlannerReviewFocusScore] = useState(8)
   const [plannerReviewError, setPlannerReviewError] = useState('')
+  const [activeLibraryAreaFilter, setActiveLibraryAreaFilter] = useState(ALL_AREAS_FILTER)
+  const [activePlannerAreaFilter, setActivePlannerAreaFilter] = useState(ALL_AREAS_FILTER)
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Connect Google Drive to upload files across devices.',
@@ -551,6 +748,7 @@ function App() {
 
   const tokenClientRef = useRef<TokenClient | null>(null)
   const accessTokenRef = useRef<string | null>(null)
+  const subjectDefinitionsRef = useRef<SubjectDefinition[]>(subjectDefinitions)
   const pendingUploadsRef = useRef<PendingUploadItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plannerTrackRef = useRef<HTMLDivElement>(null)
@@ -565,8 +763,19 @@ function App() {
   }, [accessToken])
 
   useEffect(() => {
-    localStorage.setItem(SUBJECTS_STORAGE_KEY, JSON.stringify(subjects))
-  }, [subjects])
+    subjectDefinitionsRef.current = subjectDefinitions
+  }, [subjectDefinitions])
+
+  useEffect(() => {
+    localStorage.setItem(AREAS_STORAGE_KEY, JSON.stringify(areas))
+  }, [areas])
+
+  useEffect(() => {
+    localStorage.setItem(
+      SUBJECT_DEFINITIONS_STORAGE_KEY,
+      JSON.stringify(subjectDefinitions),
+    )
+  }, [subjectDefinitions])
 
   useEffect(() => {
     localStorage.setItem(PLANNER_SESSIONS_STORAGE_KEY, JSON.stringify(plannerSessions))
@@ -612,6 +821,28 @@ function App() {
 
   const todayDateKey = useMemo(() => formatDateKey(now), [now])
   const nowInMinutes = useMemo(() => now.getHours() * 60 + now.getMinutes(), [now])
+  const areaFilterOptions = useMemo(
+    () =>
+      sortAreaNames([
+        ...areas,
+        ...documents.map((document) => document.area),
+        ...subjectDefinitions.map((definition) => definition.area),
+        ...plannerSessions.map((session) => getPlannerSessionArea(session)),
+      ]),
+    [areas, documents, plannerSessions, subjectDefinitions],
+  )
+  const uploadSubjectSuggestions = useMemo(
+    () => getSubjectSuggestions(subjectDefinitions, uploadAreaInput),
+    [subjectDefinitions, uploadAreaInput],
+  )
+  const plannerSubjectSuggestions = useMemo(
+    () => getSubjectSuggestions(subjectDefinitions, plannerAreaInput),
+    [plannerAreaInput, subjectDefinitions],
+  )
+  const noteSubjectSuggestions = useMemo(
+    () => getSubjectSuggestions(subjectDefinitions, noteAreaInput),
+    [noteAreaInput, subjectDefinitions],
+  )
   const plannerStartMinutes = PLANNER_START_HOUR * 60
   const plannerEndMinutes = PLANNER_END_HOUR * 60
   const plannerTotalMinutes = plannerEndMinutes - plannerStartMinutes
@@ -673,6 +904,24 @@ function App() {
       ) ?? null,
     [nowInMinutes, plannerSessions, todayDateKey],
   )
+  const filteredDocuments = useMemo(
+    () =>
+      documents.filter((document) =>
+        activeLibraryAreaFilter === ALL_AREAS_FILTER
+          ? true
+          : document.area === activeLibraryAreaFilter,
+      ),
+    [activeLibraryAreaFilter, documents],
+  )
+  const filteredPlannerSessions = useMemo(
+    () =>
+      todaysPlannerSessions.filter((session) =>
+        activePlannerAreaFilter === ALL_AREAS_FILTER
+          ? true
+          : getPlannerSessionArea(session) === activePlannerAreaFilter,
+      ),
+    [activePlannerAreaFilter, todaysPlannerSessions],
+  )
 
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
@@ -680,6 +929,35 @@ function App() {
       authTimeoutRef.current = null
     }
   }, [])
+
+  const registerArea = useCallback((areaName: string) => {
+    const normalizedArea = normalizeLabel(areaName)
+
+    if (!normalizedArea) {
+      return
+    }
+
+    setAreas((currentAreas) => mergeAreas(currentAreas, [normalizedArea]))
+  }, [])
+
+  const registerSubjectDefinition = useCallback(
+    (areaName: string, subjectName: string) => {
+      const normalizedArea = normalizeLabel(areaName)
+      const normalizedSubject = normalizeLabel(subjectName)
+
+      if (!normalizedArea || !normalizedSubject || normalizedSubject === 'Unsorted') {
+        return
+      }
+
+      registerArea(normalizedArea)
+      setSubjectDefinitions((currentDefinitions) =>
+        mergeSubjectDefinitions(currentDefinitions, [
+          { area: normalizedArea, name: normalizedSubject },
+        ]),
+      )
+    },
+    [registerArea],
+  )
 
   const loadDriveDocuments = useCallback(async (tokenOverride?: string) => {
     const token = tokenOverride ?? accessTokenRef.current
@@ -692,17 +970,18 @@ function App() {
       const folderId = await ensureDriveFolder(token)
       const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
 
-      const response = await driveRequest<{
-        files: Array<{
-          id: string
-          name: string
-          webViewLink?: string
-          createdTime?: string
-          appProperties?: {
-            subject?: string
-            type?: string
-            tags?: string
-            displayName?: string
+        const response = await driveRequest<{
+          files: Array<{
+            id: string
+            name: string
+            webViewLink?: string
+            createdTime?: string
+            appProperties?: {
+              area?: string
+              subject?: string
+              type?: string
+              tags?: string
+              displayName?: string
           }
         }>
       }>(
@@ -710,9 +989,12 @@ function App() {
         `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,webViewLink,createdTime,appProperties)&orderBy=createdTime desc`,
       )
 
-      const nextDocuments = response.files.map((file) => ({
-        id: file.id,
-        title: file.appProperties?.displayName?.trim() || file.name,
+        const nextDocuments = response.files.map((file) => ({
+          id: file.id,
+          area:
+            normalizeLabel(file.appProperties?.area ?? '') ||
+            getSubjectArea(subjectDefinitionsRef.current, file.appProperties?.subject ?? ''),
+          title: file.appProperties?.displayName?.trim() || file.name,
         subject: file.appProperties?.subject || 'Unsorted',
         type: file.appProperties?.type || 'File',
         meta: formatDriveMeta(file.createdTime),
@@ -720,12 +1002,15 @@ function App() {
         link: file.webViewLink,
       }))
 
-      setSubjects((currentSubjects) =>
-        mergeSubjects(
-          currentSubjects,
+      setAreas((currentAreas) =>
+        mergeAreas(currentAreas, nextDocuments.map((document) => document.area)),
+      )
+      setSubjectDefinitions((currentDefinitions) =>
+        mergeSubjectDefinitions(
+          currentDefinitions,
           nextDocuments
-            .map((document) => document.subject)
-            .filter((subject) => subject !== 'Unsorted'),
+            .filter((document) => document.subject !== 'Unsorted')
+            .map((document) => ({ area: document.area, name: document.subject })),
         ),
       )
       setDocuments(nextDocuments)
@@ -831,12 +1116,13 @@ function App() {
   const uploadFiles = useCallback(
     async (
       uploads: PendingUploadItem[],
+      areaName: string,
       subjectName: string,
       tokenOverride?: string,
     ): Promise<void> => {
       const token = tokenOverride ?? accessTokenRef.current
 
-      if (!token || uploads.length === 0 || !subjectName) {
+      if (!token || uploads.length === 0 || !areaName || !subjectName) {
         return
       }
 
@@ -855,6 +1141,7 @@ function App() {
               token,
               file,
               folderId,
+              areaName,
               subjectName,
               selectedType,
               tags,
@@ -863,6 +1150,7 @@ function App() {
 
             return {
               id: uploadedFile.id,
+              area: areaName,
               title: displayName.trim() || uploadedFile.name,
               subject: subjectName,
               type: selectedType,
@@ -873,10 +1161,11 @@ function App() {
           }),
         )
 
-        setSubjects((currentSubjects) => mergeSubjects(currentSubjects, [subjectName]))
+        registerSubjectDefinition(areaName, subjectName)
         setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments])
         pendingUploadsRef.current = []
         setPendingUploads([])
+        setUploadAreaInput(areaName)
         setUploadSubjectInput(subjectName)
         await loadDriveDocuments(token)
       } catch (error) {
@@ -890,7 +1179,7 @@ function App() {
         setIsDragActive(false)
       }
     },
-    [loadDriveDocuments, selectedType, tagValue],
+    [loadDriveDocuments, registerSubjectDefinition, selectedType, tagValue],
   )
 
   const startAuthRequest = useCallback(
@@ -960,7 +1249,7 @@ function App() {
              void flushPendingPlannerSessionLogs(response.access_token)
 
              if (pendingUploadsRef.current.length > 0) {
-               setStatusMessage('Choose a subject and name, then upload your file.')
+               setStatusMessage('Choose an area, subject and name, then upload your file.')
             }
           },
           error_callback: () => {
@@ -1006,7 +1295,7 @@ function App() {
     setPendingUploads(nextPendingUploads)
 
     if (accessTokenRef.current) {
-      setStatusMessage('Choose a subject and name, then upload your file.')
+      setStatusMessage('Choose an area, subject and name, then upload your file.')
       return
     }
 
@@ -1058,7 +1347,13 @@ function App() {
     }
 
     if (pendingUploadsRef.current.length > 0) {
+      const resolvedArea = normalizeLabel(uploadAreaInput)
       const resolvedSubject = uploadSubjectInput.trim()
+
+      if (!resolvedArea) {
+        setStatusMessage('Add an area before uploading.')
+        return
+      }
 
       if (!resolvedSubject) {
         setStatusMessage('Add a subject before uploading.')
@@ -1074,7 +1369,7 @@ function App() {
         return
       }
 
-      void uploadFiles(pendingUploadsRef.current, resolvedSubject)
+      void uploadFiles(pendingUploadsRef.current, resolvedArea, resolvedSubject)
       return
     }
 
@@ -1084,6 +1379,11 @@ function App() {
   const handleClearPendingFiles = () => {
     pendingUploadsRef.current = []
     setPendingUploads([])
+    setUploadAreaInput(
+      activeLibraryAreaFilter === ALL_AREAS_FILTER
+        ? DEFAULT_AREA_NAME
+        : activeLibraryAreaFilter,
+    )
     setUploadSubjectInput('')
     setStatusMessage(
       accessTokenRef.current
@@ -1167,6 +1467,7 @@ function App() {
         setPlannerPreviewMinutes(null)
         setPlannerSelectionStage('start')
         setPlannerSelectionStartMinutes(null)
+        setPlannerPendingArea(DEFAULT_AREA_NAME)
         setPlannerPendingSubject('')
         setPlannerPendingNote('')
         setPlannerSelectionMessage('')
@@ -1176,6 +1477,11 @@ function App() {
   }
 
   const handleOpenPlannerSetup = () => {
+    setPlannerAreaInput(
+      activePlannerAreaFilter === ALL_AREAS_FILTER
+        ? DEFAULT_AREA_NAME
+        : activePlannerAreaFilter,
+    )
     setPlannerSubjectInput('')
     setPlannerNoteInput('')
     setPlannerSetupError('')
@@ -1188,13 +1494,21 @@ function App() {
   }
 
   const handleStartPlannerSelection = () => {
+    const area = normalizeLabel(plannerAreaInput)
     const subject = plannerSubjectInput.trim()
+
+    if (!area) {
+      setPlannerSetupError('Add an area.')
+      return
+    }
 
     if (!subject) {
       setPlannerSetupError('Add a subject.')
       return
     }
 
+    registerSubjectDefinition(area, subject)
+    setPlannerPendingArea(area)
     setPlannerPendingSubject(subject)
     setPlannerPendingNote(plannerNoteInput.trim())
     setPlannerSetupError('')
@@ -1280,6 +1594,7 @@ function App() {
         ...currentSessions,
           {
             id: `session-${Date.now()}`,
+            area: plannerPendingArea,
             subject: plannerPendingSubject,
             note: plannerPendingNote,
             startMinutes: nextSessionStart,
@@ -1290,6 +1605,7 @@ function App() {
     )
     setPlannerSelectionStage('start')
     setPlannerSelectionStartMinutes(null)
+    setPlannerPendingArea(DEFAULT_AREA_NAME)
     setPlannerPendingSubject('')
     setPlannerPendingNote('')
     setPlannerSelectionMessage('')
@@ -1416,6 +1732,38 @@ function App() {
               </button>
             </div>
 
+            <div className="panel-filter-bar">
+              <div className="filter-row" aria-label="Area filters">
+                {[ALL_AREAS_FILTER, ...areaFilterOptions].map((areaName) => {
+                  const areaTone =
+                    areaName === ALL_AREAS_FILTER ? null : getAreaTone(areaName)
+
+                  return (
+                    <button
+                      key={areaName}
+                      className={
+                        activeLibraryAreaFilter === areaName
+                          ? 'filter-chip area-filter-chip is-active'
+                          : 'filter-chip area-filter-chip'
+                      }
+                      type="button"
+                      onClick={() => setActiveLibraryAreaFilter(areaName)}
+                      style={
+                        areaTone
+                          ? {
+                              borderColor: areaTone.border,
+                              color: areaTone.text,
+                            }
+                          : undefined
+                      }
+                    >
+                      {areaName}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             <div className="library-grid">
               <section className="upload-panel">
                 <div
@@ -1484,9 +1832,10 @@ function App() {
                 </div>
 
                 <div className="document-list">
-                  {documents.length > 0 ? (
-                    documents.map((document) => {
-                      const subjectTone = getSubjectTone(document.subject)
+                  {filteredDocuments.length > 0 ? (
+                    filteredDocuments.map((document) => {
+                      const areaTone = getAreaTone(document.area)
+                      const subjectTone = getSubjectTone(document.area, document.subject)
                       const typeIndicator = getTypeIndicator(document.type)
                       const documentCardStyle: CSSProperties = {
                         backgroundColor: subjectTone.background,
@@ -1501,6 +1850,19 @@ function App() {
                         >
                           <div className="document-card__top">
                             <div>
+                              <div className="document-card__context">
+                                <span
+                                  className="area-pill"
+                                  style={{
+                                    backgroundColor: areaTone.background,
+                                    borderColor: areaTone.border,
+                                    color: areaTone.text,
+                                  }}
+                                >
+                                  {document.area}
+                                </span>
+                                <p>{document.subject}</p>
+                              </div>
                               {document.link ? (
                                 <a
                                   className="document-link"
@@ -1513,7 +1875,6 @@ function App() {
                               ) : (
                                 <h3>{document.title}</h3>
                               )}
-                              <p>{document.subject}</p>
                             </div>
                             <div className="document-card__actions">
                               <button
@@ -1596,13 +1957,29 @@ function App() {
 
                   <div className="upload-dialog__form">
                     <label className="field">
+                      <span>Area</span>
+                      <input
+                        type="text"
+                        list={areaFilterOptions.length > 0 ? 'area-suggestions' : undefined}
+                        placeholder="Choose or add an area"
+                        value={uploadAreaInput}
+                        onChange={(event) => {
+                          setUploadAreaInput(event.target.value)
+                          setUploadSubjectInput('')
+                        }}
+                      />
+                    </label>
+
+                    <label className="field">
                       <span>Subject</span>
                       <input
                         type="text"
-                        list={subjects.length > 0 ? 'subject-suggestions' : undefined}
-                        placeholder={
-                          subjects.length > 0 ? 'Type or choose a subject' : 'Add subject'
+                        list={
+                          uploadSubjectSuggestions.length > 0
+                            ? 'upload-subject-suggestions'
+                            : undefined
                         }
+                        placeholder="Type or choose a subject"
                         value={uploadSubjectInput}
                         onChange={(event) => setUploadSubjectInput(event.target.value)}
                       />
@@ -1665,6 +2042,38 @@ function App() {
               </button>
             </div>
 
+            <div className="panel-filter-bar">
+              <div className="filter-row" aria-label="Planner area filters">
+                {[ALL_AREAS_FILTER, ...areaFilterOptions].map((areaName) => {
+                  const areaTone =
+                    areaName === ALL_AREAS_FILTER ? null : getAreaTone(areaName)
+
+                  return (
+                    <button
+                      key={areaName}
+                      className={
+                        activePlannerAreaFilter === areaName
+                          ? 'filter-chip area-filter-chip is-active'
+                          : 'filter-chip area-filter-chip'
+                      }
+                      type="button"
+                      onClick={() => setActivePlannerAreaFilter(areaName)}
+                      style={
+                        areaTone
+                          ? {
+                              borderColor: areaTone.border,
+                              color: areaTone.text,
+                            }
+                          : undefined
+                      }
+                    >
+                      {areaName}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             {isPlannerSelecting || plannerSelectionMessage ? (
               <div className="planner-selection-bar">
                 <span className="planner-selection-bar__text">
@@ -1721,8 +2130,10 @@ function App() {
                     ))}
                   </div>
 
-                    {todaysPlannerSessions.map((session) => {
-                    const subjectTone = getSubjectTone(session.subject)
+                  {filteredPlannerSessions.map((session) => {
+                    const sessionArea = getPlannerSessionArea(session)
+                    const areaTone = getAreaTone(sessionArea)
+                    const subjectTone = getSubjectTone(sessionArea, session.subject)
                     const left = ((session.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
                     const width =
                       ((session.endMinutes - session.startMinutes) / plannerTotalMinutes) * 100
@@ -1738,14 +2149,24 @@ function App() {
                           borderColor: subjectTone.border,
                         }}
                       >
+                        <span
+                          className="area-pill area-pill--small"
+                          style={{
+                            backgroundColor: areaTone.background,
+                            borderColor: areaTone.border,
+                            color: areaTone.text,
+                          }}
+                        >
+                          {sessionArea}
+                        </span>
                         <strong>{session.subject}</strong>
                         {session.note ? <p className="planner-session__note">{session.note}</p> : null}
-                        <span>
+                        <span className="planner-session__time">
                           {formatTimelineTime(session.startMinutes)} -{' '}
                           {formatTimelineTime(session.endMinutes)}
                         </span>
                       </article>
-                      )
+                    )
                   })}
 
                   {plannerSelectionStartMinutes !== null ? (
@@ -1792,8 +2213,20 @@ function App() {
             {activePlannerSession && activePlannerProgress ? (
               <div className="planner-progress">
                 <div className="planner-progress__header">
-                  <strong>{activePlannerSession.subject}</strong>
-                  <span>
+                  <div className="planner-progress__title">
+                    <span
+                      className="area-pill area-pill--small"
+                      style={{
+                        backgroundColor: getAreaTone(getPlannerSessionArea(activePlannerSession)).background,
+                        borderColor: getAreaTone(getPlannerSessionArea(activePlannerSession)).border,
+                        color: getAreaTone(getPlannerSessionArea(activePlannerSession)).text,
+                      }}
+                    >
+                      {getPlannerSessionArea(activePlannerSession)}
+                    </span>
+                    <strong>{activePlannerSession.subject}</strong>
+                  </div>
+                  <span className="planner-progress__time">
                     {activePlannerProgress.remainingMinutes} min left
                   </span>
                 </div>
@@ -1805,7 +2238,10 @@ function App() {
                     className="planner-progress__fill"
                     style={{
                       width: `${activePlannerProgress.progress}%`,
-                      backgroundColor: getSubjectTone(activePlannerSession.subject).border,
+                      backgroundColor: getSubjectTone(
+                        getPlannerSessionArea(activePlannerSession),
+                        activePlannerSession.subject,
+                      ).border,
                     }}
                   />
                 </div>
@@ -1831,11 +2267,29 @@ function App() {
 
                   <div className="upload-dialog__form">
                     <label className="field">
+                      <span>Area</span>
+                      <input
+                        type="text"
+                        list={areaFilterOptions.length > 0 ? 'area-suggestions' : undefined}
+                        placeholder="Choose or add an area"
+                        value={plannerAreaInput}
+                        onChange={(event) => {
+                          setPlannerAreaInput(event.target.value)
+                          setPlannerSubjectInput('')
+                        }}
+                      />
+                    </label>
+
+                    <label className="field">
                       <span>Subject</span>
                       <input
                         type="text"
-                        list={subjects.length > 0 ? 'subject-suggestions' : undefined}
-                        placeholder={subjects.length > 0 ? 'Type or choose a subject' : 'Add subject'}
+                        list={
+                          plannerSubjectSuggestions.length > 0
+                            ? 'planner-subject-suggestions'
+                            : undefined
+                        }
+                        placeholder="Type or choose a subject"
                         value={plannerSubjectInput}
                         onChange={(event) => setPlannerSubjectInput(event.target.value)}
                       />
@@ -1876,6 +2330,16 @@ function App() {
                   <div className="upload-dialog__header">
                     <div>
                       <p className="eyebrow">Session review</p>
+                      <span
+                        className="area-pill"
+                        style={{
+                          backgroundColor: getAreaTone(getPlannerSessionArea(plannerReviewSession)).background,
+                          borderColor: getAreaTone(getPlannerSessionArea(plannerReviewSession)).border,
+                          color: getAreaTone(getPlannerSessionArea(plannerReviewSession)).text,
+                        }}
+                      >
+                        {getPlannerSessionArea(plannerReviewSession)}
+                      </span>
                       <h2 id="planner-review-title">{plannerReviewSession.subject}</h2>
                     </div>
                     <span className="planner-review-dialog__time">
@@ -1978,13 +2442,29 @@ function App() {
               </label>
 
               <label className="field">
+                <span>Area</span>
+                <input
+                  type="text"
+                  list={areaFilterOptions.length > 0 ? 'area-suggestions' : undefined}
+                  placeholder="Choose or add an area"
+                  value={noteAreaInput}
+                  onChange={(event) => {
+                    setNoteAreaInput(event.target.value)
+                    setNoteSubjectInput('')
+                  }}
+                />
+              </label>
+
+              <label className="field">
                 <span>Subject</span>
                 <input
                   type="text"
-                  list={subjects.length > 0 ? 'subject-suggestions' : undefined}
-                  placeholder={
-                    subjects.length > 0 ? 'Type or choose a subject' : 'Add subject'
+                  list={
+                    noteSubjectSuggestions.length > 0
+                      ? 'note-subject-suggestions'
+                      : undefined
                   }
+                  placeholder="Type or choose a subject"
                   value={noteSubjectInput}
                   onChange={(event) => setNoteSubjectInput(event.target.value)}
                 />
@@ -2006,10 +2486,34 @@ function App() {
           </section>
         )}
 
-        {subjects.length > 0 ? (
-          <datalist id="subject-suggestions">
-            {subjects.map((subject) => (
-              <option key={subject} value={subject} />
+        {areaFilterOptions.length > 0 ? (
+          <datalist id="area-suggestions">
+            {areaFilterOptions.map((areaName) => (
+              <option key={areaName} value={areaName} />
+            ))}
+          </datalist>
+        ) : null}
+
+        {uploadSubjectSuggestions.length > 0 ? (
+          <datalist id="upload-subject-suggestions">
+            {uploadSubjectSuggestions.map((subject) => (
+              <option key={`upload-${subject}`} value={subject} />
+            ))}
+          </datalist>
+        ) : null}
+
+        {plannerSubjectSuggestions.length > 0 ? (
+          <datalist id="planner-subject-suggestions">
+            {plannerSubjectSuggestions.map((subject) => (
+              <option key={`planner-${subject}`} value={subject} />
+            ))}
+          </datalist>
+        ) : null}
+
+        {noteSubjectSuggestions.length > 0 ? (
+          <datalist id="note-subject-suggestions">
+            {noteSubjectSuggestions.map((subject) => (
+              <option key={`note-${subject}`} value={subject} />
             ))}
           </datalist>
         ) : null}
