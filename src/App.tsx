@@ -5,6 +5,7 @@ import './App.css'
 type CurrentView = 'library' | 'note'
 
 type DocumentItem = {
+  id?: string
   title: string
   subject: string
   type: string
@@ -55,36 +56,7 @@ const subjects = [
 
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
 
-const initialDocuments: DocumentItem[] = [
-  {
-    title: 'Seminar prep outline',
-    subject: 'Management',
-    type: 'Note',
-    meta: 'Draft saved 10 min ago',
-    tags: ['Seminar', 'Draft'],
-  },
-  {
-    title: 'Elasticity lecture notes',
-    subject: 'Microeconomics',
-    type: 'Notes',
-    meta: 'Updated today',
-    tags: ['Demand', 'Week 3'],
-  },
-  {
-    title: 'Probability formulas',
-    subject: 'Statistics',
-    type: 'Reference',
-    meta: 'Updated yesterday',
-    tags: ['Exam', 'Formula sheet'],
-  },
-  {
-    title: 'Budgeting case file',
-    subject: 'Accounting',
-    type: 'Assignment',
-    meta: 'Added 3 days ago',
-    tags: ['Case', 'Group work'],
-  },
-]
+const initialDocuments: DocumentItem[] = []
 
 function getNow() {
   return new Date()
@@ -236,6 +208,20 @@ async function uploadFileToDrive(
   )
 }
 
+async function deleteFileFromDrive(accessToken: string, fileId: string) {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(errorText || 'Google Drive delete failed.')
+  }
+}
+
 function App() {
   const [now, setNow] = useState(getNow)
   const [currentView, setCurrentView] = useState<CurrentView>('library')
@@ -319,6 +305,7 @@ function App() {
           )
 
           return {
+            id: uploadedFile.id,
             title: uploadedFile.name,
             subject: selectedSubject,
             type: selectedType,
@@ -447,6 +434,45 @@ function App() {
     }
 
     fileInputRef.current?.click()
+  }
+
+  const handleDeleteDocument = async (document: DocumentItem) => {
+    if (!document.id) {
+      setDocuments((currentDocuments) =>
+        currentDocuments.filter(
+          (currentDocument) =>
+            !(
+              currentDocument.title === document.title &&
+              currentDocument.meta === document.meta
+            ),
+        ),
+      )
+      return
+    }
+
+    if (!accessTokenRef.current) {
+      setStatusMessage('Connect Google Drive before deleting files.')
+      connectDrive()
+      return
+    }
+
+    try {
+      setIsUploading(true)
+      setStatusMessage(`Deleting ${document.title} from Google Drive...`)
+      await deleteFileFromDrive(accessTokenRef.current, document.id)
+      setDocuments((currentDocuments) =>
+        currentDocuments.filter((currentDocument) => currentDocument.id !== document.id),
+      )
+      setStatusMessage(`${document.title} deleted from Google Drive.`)
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? `Delete failed: ${error.message}`
+          : 'Delete failed.',
+      )
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const uploadButtonLabel = accessToken ? 'Upload' : 'Connect Drive'
@@ -600,39 +626,53 @@ function App() {
                 </div>
 
                 <div className="document-list">
-                  {documents.map((document) => (
-                    <article key={`${document.title}-${document.meta}`} className="document-card">
-                      <div className="document-card__top">
-                        <div>
-                          {document.link ? (
-                            <a
-                              className="document-link"
-                              href={document.link}
-                              rel="noreferrer"
-                              target="_blank"
+                  {documents.length > 0 ? (
+                    documents.map((document) => (
+                      <article key={`${document.title}-${document.meta}`} className="document-card">
+                        <div className="document-card__top">
+                          <div>
+                            {document.link ? (
+                              <a
+                                className="document-link"
+                                href={document.link}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                {document.title}
+                              </a>
+                            ) : (
+                              <h3>{document.title}</h3>
+                            )}
+                            <p>{document.subject}</p>
+                          </div>
+                          <div className="document-card__actions">
+                            <span className="document-type">{document.type}</span>
+                            <button
+                              className="delete-button"
+                              type="button"
+                              onClick={() => void handleDeleteDocument(document)}
+                              disabled={isUploading || isAuthenticating}
                             >
-                              {document.title}
-                            </a>
-                          ) : (
-                            <h3>{document.title}</h3>
-                          )}
-                          <p>{document.subject}</p>
+                              Delete
+                            </button>
+                          </div>
                         </div>
-                        <span className="document-type">{document.type}</span>
-                      </div>
 
-                      <div className="document-card__bottom">
-                        <span>{document.meta}</span>
-                        <div className="tag-list">
-                          {document.tags.map((tag) => (
-                            <span key={tag} className="tag">
-                              {tag}
-                            </span>
-                          ))}
+                        <div className="document-card__bottom">
+                          <span>{document.meta}</span>
+                          <div className="tag-list">
+                            {document.tags.map((tag) => (
+                              <span key={tag} className="tag">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    </article>
-                  ))}
+                      </article>
+                    ))
+                  ) : (
+                    <div className="documents-empty">No files yet</div>
+                  )}
                 </div>
               </section>
             </div>

@@ -350,6 +350,12 @@
   gap: 1rem;
 }
 
+.document-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .document-card p,
 .document-card__bottom span {
   margin: 0;
@@ -361,6 +367,20 @@
   background: rgba(111, 29, 58, 0.1);
   color: var(--burgundy);
   font-size: 0.85rem;
+}
+
+.delete-button {
+  border: 0;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(104, 86, 78, 0.08);
+  color: var(--mole);
+  cursor: pointer;
+}
+
+.delete-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
 }
 
 .tag-list {
