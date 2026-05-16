@@ -167,6 +167,16 @@ function normalizeLabel(value: string) {
   return value.trim()
 }
 
+function getSubjectFocusValue(value: string) {
+  const normalizedValue = normalizeLabel(value)
+
+  if (normalizedValue.toLowerCase() === 'unsorted') {
+    return ''
+  }
+
+  return normalizedValue
+}
+
 function hashValue(value: string) {
   return Array.from(value).reduce((total, character) => total + character.charCodeAt(0), 0)
 }
@@ -198,6 +208,14 @@ function getPlannerSessionDateKey(session: PlannerSession, fallbackDateKey: stri
 
 function getPlannerSessionArea(session: PlannerSession) {
   return normalizeLabel(session.area ?? '') || DEFAULT_AREA_NAME
+}
+
+function getPlannerSessionTitle(session: PlannerSession) {
+  return (
+    getSubjectFocusValue(session.subject) ||
+    normalizeLabel(session.note) ||
+    'Session'
+  )
 }
 
 function isPlannerSessionReadyForReview(
@@ -256,7 +274,7 @@ function mergeSubjectDefinitions(
 }
 
 function getSubjectArea(subjectDefinitions: SubjectDefinition[], subjectName: string) {
-  const normalizedSubject = normalizeLabel(subjectName).toLowerCase()
+  const normalizedSubject = getSubjectFocusValue(subjectName).toLowerCase()
 
   if (!normalizedSubject) {
     return DEFAULT_AREA_NAME
@@ -453,13 +471,13 @@ function getAreaTone(areaName: string) {
 }
 
 function getSubjectTone(areaName: string, subjectName: string) {
-  const normalizedSubject = normalizeLabel(subjectName).toLowerCase()
+  const family = areaToneFamilies[getAreaFamilyIndex(areaName)]
+  const normalizedSubject = getSubjectFocusValue(subjectName).toLowerCase()
 
-  if (!normalizedSubject || normalizedSubject === 'unsorted') {
-    return { background: 'rgba(108, 117, 125, 0.16)', border: 'rgba(108, 117, 125, 0.38)' }
+  if (!normalizedSubject) {
+    return family.sessionVariants[0]
   }
 
-  const family = areaToneFamilies[getAreaFamilyIndex(areaName)]
   return family.sessionVariants[hashValue(normalizedSubject) % family.sessionVariants.length]
 }
 
@@ -896,6 +914,18 @@ function App() {
       remainingMinutes,
     }
   }, [activePlannerSession, nowInMinutes])
+  const activePlannerSessionArea = activePlannerSession
+    ? getPlannerSessionArea(activePlannerSession)
+    : null
+  const activePlannerSessionTone = activePlannerSessionArea
+    ? getAreaTone(activePlannerSessionArea)
+    : null
+  const activePlannerSessionTitle = activePlannerSession
+    ? getPlannerSessionTitle(activePlannerSession)
+    : ''
+  const activePlannerSessionNote = activePlannerSession
+    ? normalizeLabel(activePlannerSession.note)
+    : ''
 
   const plannerReviewSession = useMemo(
     () =>
@@ -943,9 +973,9 @@ function App() {
   const registerSubjectDefinition = useCallback(
     (areaName: string, subjectName: string) => {
       const normalizedArea = normalizeLabel(areaName)
-      const normalizedSubject = normalizeLabel(subjectName)
+      const normalizedSubject = getSubjectFocusValue(subjectName)
 
-      if (!normalizedArea || !normalizedSubject || normalizedSubject === 'Unsorted') {
+      if (!normalizedArea || !normalizedSubject) {
         return
       }
 
@@ -989,13 +1019,13 @@ function App() {
         `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,webViewLink,createdTime,appProperties)&orderBy=createdTime desc`,
       )
 
-        const nextDocuments = response.files.map((file) => ({
-          id: file.id,
-          area:
-            normalizeLabel(file.appProperties?.area ?? '') ||
+      const nextDocuments = response.files.map((file) => ({
+        id: file.id,
+        area:
+          normalizeLabel(file.appProperties?.area ?? '') ||
             getSubjectArea(subjectDefinitionsRef.current, file.appProperties?.subject ?? ''),
-          title: file.appProperties?.displayName?.trim() || file.name,
-        subject: file.appProperties?.subject || 'Unsorted',
+        title: file.appProperties?.displayName?.trim() || file.name,
+        subject: getSubjectFocusValue(file.appProperties?.subject ?? ''),
         type: file.appProperties?.type || 'File',
         meta: formatDriveMeta(file.createdTime),
         tags: parseTags(file.appProperties?.tags || ''),
@@ -1009,7 +1039,7 @@ function App() {
         mergeSubjectDefinitions(
           currentDefinitions,
           nextDocuments
-            .filter((document) => document.subject !== 'Unsorted')
+            .filter((document) => document.subject.length > 0)
             .map((document) => ({ area: document.area, name: document.subject })),
         ),
       )
@@ -1122,7 +1152,7 @@ function App() {
     ): Promise<void> => {
       const token = tokenOverride ?? accessTokenRef.current
 
-      if (!token || uploads.length === 0 || !areaName || !subjectName) {
+      if (!token || uploads.length === 0 || !areaName) {
         return
       }
 
@@ -1249,7 +1279,7 @@ function App() {
              void flushPendingPlannerSessionLogs(response.access_token)
 
              if (pendingUploadsRef.current.length > 0) {
-               setStatusMessage('Choose an area, subject and name, then upload your file.')
+               setStatusMessage('Choose an area and name, then upload your file.')
             }
           },
           error_callback: () => {
@@ -1295,7 +1325,7 @@ function App() {
     setPendingUploads(nextPendingUploads)
 
     if (accessTokenRef.current) {
-      setStatusMessage('Choose an area, subject and name, then upload your file.')
+      setStatusMessage('Choose an area and name, then upload your file.')
       return
     }
 
@@ -1348,15 +1378,10 @@ function App() {
 
     if (pendingUploadsRef.current.length > 0) {
       const resolvedArea = normalizeLabel(uploadAreaInput)
-      const resolvedSubject = uploadSubjectInput.trim()
+      const resolvedSubject = getSubjectFocusValue(uploadSubjectInput)
 
       if (!resolvedArea) {
         setStatusMessage('Add an area before uploading.')
-        return
-      }
-
-      if (!resolvedSubject) {
-        setStatusMessage('Add a subject before uploading.')
         return
       }
 
@@ -1495,15 +1520,10 @@ function App() {
 
   const handleStartPlannerSelection = () => {
     const area = normalizeLabel(plannerAreaInput)
-    const subject = plannerSubjectInput.trim()
+    const subject = getSubjectFocusValue(plannerSubjectInput)
 
     if (!area) {
       setPlannerSetupError('Add an area.')
-      return
-    }
-
-    if (!subject) {
-      setPlannerSetupError('Add a subject.')
       return
     }
 
@@ -1836,6 +1856,7 @@ function App() {
                     filteredDocuments.map((document) => {
                       const areaTone = getAreaTone(document.area)
                       const subjectTone = getSubjectTone(document.area, document.subject)
+                      const subjectFocus = getSubjectFocusValue(document.subject)
                       const typeIndicator = getTypeIndicator(document.type)
                       const documentCardStyle: CSSProperties = {
                         backgroundColor: subjectTone.background,
@@ -1861,7 +1882,7 @@ function App() {
                                 >
                                   {document.area}
                                 </span>
-                                <p>{document.subject}</p>
+                                {subjectFocus ? <p>{subjectFocus}</p> : null}
                               </div>
                               {document.link ? (
                                 <a
@@ -1971,7 +1992,7 @@ function App() {
                     </label>
 
                     <label className="field">
-                      <span>Subject</span>
+                      <span>Subject/Focus</span>
                       <input
                         type="text"
                         list={
@@ -1979,7 +2000,7 @@ function App() {
                             ? 'upload-subject-suggestions'
                             : undefined
                         }
-                        placeholder="Type or choose a subject"
+                        placeholder="Optional"
                         value={uploadSubjectInput}
                         onChange={(event) => setUploadSubjectInput(event.target.value)}
                       />
@@ -2134,6 +2155,8 @@ function App() {
                     const sessionArea = getPlannerSessionArea(session)
                     const areaTone = getAreaTone(sessionArea)
                     const subjectTone = getSubjectTone(sessionArea, session.subject)
+                    const sessionNote = normalizeLabel(session.note)
+                    const sessionTitle = getPlannerSessionTitle(session)
                     const left = ((session.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
                     const width =
                       ((session.endMinutes - session.startMinutes) / plannerTotalMinutes) * 100
@@ -2159,8 +2182,10 @@ function App() {
                         >
                           {sessionArea}
                         </span>
-                        <strong>{session.subject}</strong>
-                        {session.note ? <p className="planner-session__note">{session.note}</p> : null}
+                        <strong>{sessionTitle}</strong>
+                        {sessionNote && sessionNote !== sessionTitle ? (
+                          <p className="planner-session__note">{sessionNote}</p>
+                        ) : null}
                         <span className="planner-session__time">
                           {formatTimelineTime(session.startMinutes)} -{' '}
                           {formatTimelineTime(session.endMinutes)}
@@ -2217,21 +2242,21 @@ function App() {
                     <span
                       className="area-pill area-pill--small"
                       style={{
-                        backgroundColor: getAreaTone(getPlannerSessionArea(activePlannerSession)).background,
-                        borderColor: getAreaTone(getPlannerSessionArea(activePlannerSession)).border,
-                        color: getAreaTone(getPlannerSessionArea(activePlannerSession)).text,
+                        backgroundColor: activePlannerSessionTone?.background,
+                        borderColor: activePlannerSessionTone?.border,
+                        color: activePlannerSessionTone?.text,
                       }}
                     >
-                      {getPlannerSessionArea(activePlannerSession)}
+                      {activePlannerSessionArea}
                     </span>
-                    <strong>{activePlannerSession.subject}</strong>
+                    <strong>{activePlannerSessionTitle}</strong>
                   </div>
                   <span className="planner-progress__time">
                     {activePlannerProgress.remainingMinutes} min left
                   </span>
                 </div>
-                {activePlannerSession.note ? (
-                  <p className="planner-progress__note">{activePlannerSession.note}</p>
+                {activePlannerSessionNote && activePlannerSessionNote !== activePlannerSessionTitle ? (
+                  <p className="planner-progress__note">{activePlannerSessionNote}</p>
                 ) : null}
                 <div className="planner-progress__track" aria-label="Session progress">
                   <span
@@ -2239,7 +2264,7 @@ function App() {
                     style={{
                       width: `${activePlannerProgress.progress}%`,
                       backgroundColor: getSubjectTone(
-                        getPlannerSessionArea(activePlannerSession),
+                        activePlannerSessionArea ?? DEFAULT_AREA_NAME,
                         activePlannerSession.subject,
                       ).border,
                     }}
@@ -2281,7 +2306,7 @@ function App() {
                     </label>
 
                     <label className="field">
-                      <span>Subject</span>
+                      <span>Subject/Focus</span>
                       <input
                         type="text"
                         list={
@@ -2289,7 +2314,7 @@ function App() {
                             ? 'planner-subject-suggestions'
                             : undefined
                         }
-                        placeholder="Type or choose a subject"
+                        placeholder="Optional"
                         value={plannerSubjectInput}
                         onChange={(event) => setPlannerSubjectInput(event.target.value)}
                       />
@@ -2340,7 +2365,7 @@ function App() {
                       >
                         {getPlannerSessionArea(plannerReviewSession)}
                       </span>
-                      <h2 id="planner-review-title">{plannerReviewSession.subject}</h2>
+                      <h2 id="planner-review-title">{getPlannerSessionTitle(plannerReviewSession)}</h2>
                     </div>
                     <span className="planner-review-dialog__time">
                       {formatTimelineTime(plannerReviewSession.startMinutes)} -{' '}
@@ -2456,7 +2481,7 @@ function App() {
               </label>
 
               <label className="field">
-                <span>Subject</span>
+                <span>Subject/Focus</span>
                 <input
                   type="text"
                   list={
@@ -2464,7 +2489,7 @@ function App() {
                       ? 'note-subject-suggestions'
                       : undefined
                   }
-                  placeholder="Type or choose a subject"
+                  placeholder="Optional"
                   value={noteSubjectInput}
                   onChange={(event) => setNoteSubjectInput(event.target.value)}
                 />
