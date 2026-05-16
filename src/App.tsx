@@ -227,6 +227,7 @@ function formatTimelineTime(totalMinutes: number) {
   return new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   }).format(new Date(2024, 0, 1, hours, minutes))
 }
 
@@ -1384,8 +1385,20 @@ function App() {
             <div className="planner-timeline-shell">
               <div className="planner-timeline">
                 <div className="planner-hours" aria-hidden="true">
-                  {plannerHours.map((hour) => (
-                    <span key={hour.value} className="planner-hour">
+                  {plannerHours.map((hour, index) => (
+                    <span
+                      key={hour.value}
+                      className={
+                        index === 0
+                          ? 'planner-hour is-first'
+                          : index === plannerHours.length - 1
+                            ? 'planner-hour is-last'
+                            : 'planner-hour'
+                      }
+                      style={{
+                        left: `${((hour.value - PLANNER_START_HOUR) / (PLANNER_END_HOUR - PLANNER_START_HOUR)) * 100}%`,
+                      }}
+                    >
                       {hour.label}
                     </span>
                   ))}
@@ -1404,7 +1417,17 @@ function App() {
                         ? 'planner-track__lane is-selecting'
                         : 'planner-track__lane'
                     }
-                  />
+                  >
+                    {plannerHours.map((hour) => (
+                      <span
+                        key={hour.value}
+                        className="planner-gridline"
+                        style={{
+                          left: `${((hour.value - PLANNER_START_HOUR) / (PLANNER_END_HOUR - PLANNER_START_HOUR)) * 100}%`,
+                        }}
+                      />
+                    ))}
+                  </div>
 
                   {plannerSessions.map((session) => {
                     const subjectTone = getSubjectTone(session.subject)
