@@ -71,6 +71,7 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
 const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
 const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
+const PLANNER_SESSIONS_STORAGE_KEY = 'studierommet-planner-sessions'
 const PLANNER_START_HOUR = 6
 const PLANNER_END_HOUR = 22
 const PLANNER_STEP_MINUTES = 5
@@ -144,6 +145,42 @@ function loadStoredSubjects() {
     }
   } catch {
     localStorage.removeItem(SUBJECTS_STORAGE_KEY)
+  }
+
+  return []
+}
+
+function loadStoredPlannerSessions() {
+  const storedSessions = localStorage.getItem(PLANNER_SESSIONS_STORAGE_KEY)
+
+  if (!storedSessions) {
+    return []
+  }
+
+  try {
+    const parsedSessions = JSON.parse(storedSessions) as unknown
+
+    if (Array.isArray(parsedSessions)) {
+      return parsedSessions
+        .filter((session): session is PlannerSession => {
+          if (typeof session !== 'object' || session === null) {
+            return false
+          }
+
+          const candidate = session as Partial<PlannerSession>
+
+          return (
+            typeof candidate.id === 'string' &&
+            typeof candidate.subject === 'string' &&
+            typeof candidate.note === 'string' &&
+            typeof candidate.startMinutes === 'number' &&
+            typeof candidate.endMinutes === 'number'
+          )
+        })
+        .sort((left, right) => left.startMinutes - right.startMinutes)
+    }
+  } catch {
+    localStorage.removeItem(PLANNER_SESSIONS_STORAGE_KEY)
   }
 
   return []
@@ -380,7 +417,7 @@ function App() {
   const [tagValue, setTagValue] = useState('')
   const [pendingUploads, setPendingUploads] = useState<PendingUploadItem[]>([])
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
-  const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>([])
+  const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>(loadStoredPlannerSessions)
   const [isPlannerSetupOpen, setIsPlannerSetupOpen] = useState(false)
   const [plannerSubjectInput, setPlannerSubjectInput] = useState('')
   const [plannerNoteInput, setPlannerNoteInput] = useState('')
@@ -418,6 +455,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(SUBJECTS_STORAGE_KEY, JSON.stringify(subjects))
   }, [subjects])
+
+  useEffect(() => {
+    localStorage.setItem(PLANNER_SESSIONS_STORAGE_KEY, JSON.stringify(plannerSessions))
+  }, [plannerSessions])
 
   useEffect(() => {
     const scheduleUpdate = () => {
