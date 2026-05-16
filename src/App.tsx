@@ -723,29 +723,6 @@ function App() {
               </div>
             </div>
 
-            <div className="library-search">
-              <label className="search-field">
-                <span className="sr-only">Search notes and documents</span>
-                <input type="search" placeholder="Search notes and documents" />
-              </label>
-
-              <button className="secondary-button" type="button">
-                Filters
-              </button>
-            </div>
-
-            <div className="filter-row" aria-label="Content filters">
-              {filters.map((filter) => (
-                <button
-                  key={filter}
-                  className={filter === 'All' ? 'filter-chip is-active' : 'filter-chip'}
-                  type="button"
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
-
             <div className="library-grid">
               <section className="upload-panel">
                 <div
@@ -786,6 +763,31 @@ function App() {
               <section className="documents-panel" aria-labelledby="document-list-title">
                 <div className="documents-panel__header">
                   <h2 id="document-list-title">Recent documents</h2>
+                </div>
+
+                <div className="documents-panel__tools">
+                  <div className="library-search">
+                    <label className="search-field">
+                      <span className="sr-only">Search notes and documents</span>
+                      <input type="search" placeholder="Search notes and documents" />
+                    </label>
+
+                    <button className="secondary-button" type="button">
+                      Filters
+                    </button>
+                  </div>
+
+                  <div className="filter-row" aria-label="Content filters">
+                    {filters.map((filter) => (
+                      <button
+                        key={filter}
+                        className={filter === 'All' ? 'filter-chip is-active' : 'filter-chip'}
+                        type="button"
+                      >
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="document-list">
