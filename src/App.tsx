@@ -2,7 +2,7 @@ import type { ChangeEvent, CSSProperties, DragEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-type CurrentView = 'library' | 'note'
+type CurrentView = 'library' | 'planner' | 'note'
 
 type DocumentItem = {
   id?: string
@@ -18,6 +18,13 @@ type PendingUploadItem = {
   key: string
   file: File
   displayName: string
+}
+
+type PlannerSession = {
+  id: string
+  title: string
+  startMinutes: number
+  endMinutes: number
 }
 
 type TokenResponse = {
@@ -56,8 +63,17 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const DRIVE_FOLDER_NAME = 'StudieRommet'
 const DRIVE_AUTO_CONNECT_KEY = 'studierommet-drive-auto-connect'
 const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
+const PLANNER_START_HOUR = 6
+const PLANNER_END_HOUR = 22
+const SESSION_DURATION_MINUTES = 60
 
-const navItems = ['Dashboard', 'Library', 'Planner', 'Sessions', 'Insights']
+const navItems: Array<{ label: string; view?: CurrentView }> = [
+  { label: 'Dashboard' },
+  { label: 'Library', view: 'library' },
+  { label: 'Planner', view: 'planner' },
+  { label: 'Sessions' },
+  { label: 'Insights' },
+]
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
 const subjectPalette = [
   { background: 'rgba(220, 53, 69, 0.18)', border: 'rgba(220, 53, 69, 0.55)' },
@@ -157,6 +173,31 @@ function getTypeIndicator(type: string) {
     symbol: '•',
     label: type.trim() || 'File',
   }
+}
+
+function formatTimelineTime(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(2024, 0, 1, hours, minutes))
+}
+
+function roundUpToHour(totalMinutes: number) {
+  return Math.ceil(totalMinutes / 60) * 60
+}
+
+function hasPlannerOverlap(
+  sessions: PlannerSession[],
+  startMinutes: number,
+  endMinutes: number,
+) {
+  return sessions.some(
+    (session) =>
+      startMinutes < session.endMinutes && endMinutes > session.startMinutes,
+  )
 }
 
 async function loadGoogleIdentityScript() {
@@ -335,6 +376,7 @@ function App() {
   const [tagValue, setTagValue] = useState('')
   const [pendingUploads, setPendingUploads] = useState<PendingUploadItem[]>([])
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
+  const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>([])
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState(
     'Connect Google Drive to upload files across devices.',
@@ -385,6 +427,32 @@ function App() {
       }).format(now),
     [now],
   )
+
+  const plannerStartMinutes = PLANNER_START_HOUR * 60
+  const plannerEndMinutes = PLANNER_END_HOUR * 60
+  const plannerTotalMinutes = plannerEndMinutes - plannerStartMinutes
+
+  const plannerHours = useMemo(
+    () =>
+      Array.from({ length: PLANNER_END_HOUR - PLANNER_START_HOUR + 1 }, (_, index) => {
+        const hour = PLANNER_START_HOUR + index
+        return {
+          value: hour,
+          label: formatTimelineTime(hour * 60),
+        }
+      }),
+    [],
+  )
+
+  const nowMarkerOffset = useMemo(() => {
+    const nowInMinutes = now.getHours() * 60 + now.getMinutes()
+
+    if (nowInMinutes < plannerStartMinutes || nowInMinutes > plannerEndMinutes) {
+      return null
+    }
+
+    return ((nowInMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
+  }, [now, plannerEndMinutes, plannerStartMinutes, plannerTotalMinutes])
 
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
@@ -754,6 +822,60 @@ function App() {
     }
   }
 
+  const handleAddPlannerSession = () => {
+    setPlannerSessions((currentSessions) => {
+      const nowInMinutes = now.getHours() * 60 + now.getMinutes()
+      const firstPossibleStart = Math.max(
+        plannerStartMinutes,
+        roundUpToHour(nowInMinutes),
+      )
+      const latestStart = plannerEndMinutes - SESSION_DURATION_MINUTES
+
+      let startMinutes = firstPossibleStart
+
+      while (
+        startMinutes <= latestStart &&
+        hasPlannerOverlap(
+          currentSessions,
+          startMinutes,
+          startMinutes + SESSION_DURATION_MINUTES,
+        )
+      ) {
+        startMinutes += SESSION_DURATION_MINUTES
+      }
+
+      if (startMinutes > latestStart) {
+        startMinutes = plannerStartMinutes
+
+        while (
+          startMinutes <= latestStart &&
+          hasPlannerOverlap(
+            currentSessions,
+            startMinutes,
+            startMinutes + SESSION_DURATION_MINUTES,
+          )
+        ) {
+          startMinutes += SESSION_DURATION_MINUTES
+        }
+      }
+
+      if (startMinutes > latestStart) {
+        return currentSessions
+      }
+
+      const nextSession: PlannerSession = {
+        id: `session-${Date.now()}`,
+        title: `Session ${currentSessions.length + 1}`,
+        startMinutes,
+        endMinutes: startMinutes + SESSION_DURATION_MINUTES,
+      }
+
+      return [...currentSessions, nextSession].sort(
+        (left, right) => left.startMinutes - right.startMinutes,
+      )
+    })
+  }
+
   const uploadButtonLabel = accessToken
     ? pendingUploads.length > 0
       ? `Upload ${pendingUploads.length} file${pendingUploads.length > 1 ? 's' : ''}`
@@ -763,19 +885,34 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="wordmark" href="/" aria-label="StudieRommet home">
+        <a
+          className="wordmark"
+          href="/"
+          aria-label="StudieRommet home"
+          onClick={(event) => {
+            event.preventDefault()
+            setCurrentView('library')
+          }}
+        >
           StudieRommet
         </a>
 
         <nav className="topnav" aria-label="Primary">
           {navItems.map((item) => (
-            <a
-              key={item}
-              className={item === 'Library' ? 'nav-link is-active' : 'nav-link'}
-              href="/"
-            >
-              {item}
-            </a>
+            item.view ? (
+              <button
+                key={item.label}
+                className={currentView === item.view ? 'nav-link is-active' : 'nav-link'}
+                type="button"
+                onClick={() => setCurrentView(item.view!)}
+              >
+                {item.label}
+              </button>
+            ) : (
+              <span key={item.label} className="nav-link nav-link--static">
+                {item.label}
+              </span>
+            )
           ))}
         </nav>
 
@@ -1044,6 +1181,69 @@ function App() {
                 </section>
               </div>
             ) : null}
+          </section>
+        ) : currentView === 'planner' ? (
+          <section className="dashboard-panel planner-page" aria-labelledby="planner-title">
+            <div className="dashboard-panel__header">
+              <div>
+                <p className="eyebrow">Planner</p>
+                <h1 id="planner-title">Today</h1>
+              </div>
+
+              <button
+                className="upload-button"
+                type="button"
+                onClick={handleAddPlannerSession}
+              >
+                Add session
+              </button>
+            </div>
+
+            <div className="planner-timeline-shell">
+              <div className="planner-timeline">
+                <div className="planner-hours" aria-hidden="true">
+                  {plannerHours.map((hour) => (
+                    <span key={hour.value} className="planner-hour">
+                      {hour.label}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="planner-track">
+                  <div className="planner-track__lane" />
+
+                  {plannerSessions.map((session) => {
+                    const left = ((session.startMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
+                    const width =
+                      ((session.endMinutes - session.startMinutes) / plannerTotalMinutes) * 100
+
+                    return (
+                      <article
+                        key={session.id}
+                        className="planner-session"
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                      >
+                        <strong>{session.title}</strong>
+                        <span>
+                          {formatTimelineTime(session.startMinutes)} -{' '}
+                          {formatTimelineTime(session.endMinutes)}
+                        </span>
+                      </article>
+                    )
+                  })}
+
+                  {nowMarkerOffset !== null ? (
+                    <div
+                      className="planner-now"
+                      style={{ left: `${nowMarkerOffset}%` }}
+                      aria-label={`Current time ${formattedTime}`}
+                    >
+                      <span className="planner-now__label">{formattedTime}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </section>
         ) : (
           <section className="note-page" aria-labelledby="note-page-title">

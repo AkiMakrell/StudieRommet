@@ -30,10 +30,18 @@
 }
 
 .nav-link {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
   padding: 0.55rem 0.85rem;
   border-radius: 999px;
   color: var(--mole);
   text-decoration: none;
+}
+
+.nav-link--static {
+  cursor: default;
 }
 
 .nav-link.is-active {
@@ -192,7 +200,8 @@
 
 .upload-panel,
 .documents-panel,
-.note-page {
+.note-page,
+.planner-timeline-shell {
   border: 1px solid var(--line);
   border-radius: 1.25rem;
   background: rgba(255, 255, 255, 0.52);
@@ -264,6 +273,110 @@
 .note-page {
   min-height: calc(100vh - 8rem);
   padding: 1.5rem;
+}
+
+.planner-page {
+  padding-bottom: 1.5rem;
+}
+
+.planner-timeline-shell {
+  margin-inline: 1.5rem;
+  overflow-x: auto;
+}
+
+.planner-timeline {
+  min-width: 58rem;
+  padding: 1.5rem;
+}
+
+.planner-hours {
+  display: grid;
+  grid-template-columns: repeat(17, minmax(0, 1fr));
+  margin-bottom: 1rem;
+  color: var(--mole);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.planner-hour {
+  position: relative;
+  text-align: left;
+}
+
+.planner-hour:last-child {
+  text-align: right;
+}
+
+.planner-track {
+  position: relative;
+  min-height: 12rem;
+}
+
+.planner-track__lane {
+  position: absolute;
+  inset: 2.25rem 0 2rem;
+  border: 1px dashed rgba(104, 86, 78, 0.24);
+  border-radius: 1.25rem;
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent,
+      transparent calc((100% / 16) - 1px),
+      rgba(104, 86, 78, 0.08) calc((100% / 16) - 1px),
+      rgba(104, 86, 78, 0.08) calc(100% / 16)
+    );
+}
+
+.planner-session {
+  position: absolute;
+  top: 4rem;
+  z-index: 1;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 8rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid rgba(111, 29, 58, 0.18);
+  border-radius: 1rem;
+  background: rgba(111, 29, 58, 0.12);
+  box-shadow: 0 12px 24px rgba(42, 30, 25, 0.08);
+}
+
+.planner-session strong,
+.planner-session span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planner-session strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.planner-session span {
+  color: var(--mole);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.planner-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  border-left: 2px dashed var(--burgundy);
+}
+
+.planner-now__label {
+  position: absolute;
+  top: 0;
+  left: 0.5rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(111, 29, 58, 0.12);
+  color: var(--burgundy);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .note-page__header {
@@ -545,6 +658,10 @@
     display: block;
   }
 
+  .planner-timeline {
+    min-width: 46rem;
+  }
+
   .dropzone {
     min-height: 14rem;
     border-right: 0;
@@ -572,6 +689,15 @@
 
   .library-grid {
     padding-inline: 1rem;
+  }
+
+  .planner-timeline-shell {
+    margin-inline: 1rem;
+  }
+
+  .planner-timeline {
+    min-width: 38rem;
+    padding: 1rem;
   }
 
   .documents-panel__tools {
