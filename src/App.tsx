@@ -1,4 +1,4 @@
-import type { ChangeEvent, DragEvent } from 'react'
+import type { ChangeEvent, CSSProperties, DragEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
@@ -59,6 +59,27 @@ const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
 
 const navItems = ['Dashboard', 'Library', 'Planner', 'Sessions', 'Insights']
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
+const subjectPalette = [
+  { background: 'rgba(151, 132, 112, 0.22)', border: 'rgba(151, 132, 112, 0.42)' },
+  { background: 'rgba(148, 161, 138, 0.22)', border: 'rgba(148, 161, 138, 0.42)' },
+  { background: 'rgba(179, 150, 126, 0.22)', border: 'rgba(179, 150, 126, 0.42)' },
+  { background: 'rgba(132, 147, 156, 0.22)', border: 'rgba(132, 147, 156, 0.42)' },
+  { background: 'rgba(164, 154, 116, 0.22)', border: 'rgba(164, 154, 116, 0.42)' },
+  { background: 'rgba(156, 132, 142, 0.22)', border: 'rgba(156, 132, 142, 0.42)' },
+  { background: 'rgba(128, 141, 126, 0.22)', border: 'rgba(128, 141, 126, 0.42)' },
+  { background: 'rgba(171, 160, 146, 0.22)', border: 'rgba(171, 160, 146, 0.42)' },
+] as const
+
+const typeIndicatorMap: Record<string, { color: string; label: string }> = {
+  notes: { color: '#7f5f54', label: 'Notes' },
+  note: { color: '#7f5f54', label: 'Notes' },
+  lecture: { color: '#7a8b6f', label: 'Lecture' },
+  lectures: { color: '#7a8b6f', label: 'Lecture' },
+  reading: { color: '#8d7b5b', label: 'Reading' },
+  readings: { color: '#8d7b5b', label: 'Reading' },
+  assignment: { color: '#8d6f7f', label: 'Assignment' },
+  assignments: { color: '#8d6f7f', label: 'Assignment' },
+}
 
 function getNow() {
   return new Date()
@@ -114,6 +135,28 @@ function createPendingUploadItems(files: File[]) {
     file,
     displayName: file.name,
   }))
+}
+
+function getSubjectTone(subject: string) {
+  const normalizedSubject = subject.trim().toLowerCase()
+
+  if (!normalizedSubject || normalizedSubject === 'unsorted') {
+    return { background: 'rgba(171, 160, 146, 0.18)', border: 'rgba(171, 160, 146, 0.34)' }
+  }
+
+  const hash = Array.from(normalizedSubject).reduce(
+    (total, character) => total + character.charCodeAt(0),
+    0,
+  )
+
+  return subjectPalette[hash % subjectPalette.length]
+}
+
+function getTypeIndicator(type: string) {
+  return typeIndicatorMap[type.trim().toLowerCase()] ?? {
+    color: '#7f5f54',
+    label: type.trim() || 'File',
+  }
 }
 
 async function loadGoogleIdentityScript() {
@@ -839,49 +882,73 @@ function App() {
 
                 <div className="document-list">
                   {documents.length > 0 ? (
-                    documents.map((document) => (
-                      <article key={`${document.id ?? document.title}-${document.meta}`} className="document-card">
-                        <div className="document-card__top">
-                          <div>
-                            {document.link ? (
-                              <a
-                                className="document-link"
-                                href={document.link}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                {document.title}
-                              </a>
-                            ) : (
-                              <h3>{document.title}</h3>
-                            )}
-                            <p>{document.subject}</p>
-                          </div>
-                          <div className="document-card__actions">
-                            <span className="document-type">{document.type}</span>
-                            <button
-                              className="delete-button"
-                              type="button"
-                              onClick={() => void handleDeleteDocument(document)}
-                              disabled={isUploading || isAuthenticating}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
+                    documents.map((document) => {
+                      const subjectTone = getSubjectTone(document.subject)
+                      const typeIndicator = getTypeIndicator(document.type)
+                      const documentCardStyle: CSSProperties = {
+                        backgroundColor: subjectTone.background,
+                        borderColor: subjectTone.border,
+                      }
 
-                        <div className="document-card__bottom">
-                          <span>{document.meta}</span>
-                          <div className="tag-list">
-                            {document.tags.map((tag) => (
-                              <span key={tag} className="tag">
-                                {tag}
-                              </span>
-                            ))}
+                      return (
+                        <article
+                          key={`${document.id ?? document.title}-${document.meta}`}
+                          className="document-card"
+                          style={documentCardStyle}
+                        >
+                          <div className="document-card__top">
+                            <div>
+                              {document.link ? (
+                                <a
+                                  className="document-link"
+                                  href={document.link}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                >
+                                  {document.title}
+                                </a>
+                              ) : (
+                                <h3>{document.title}</h3>
+                              )}
+                              <p>{document.subject}</p>
+                            </div>
+                            <div className="document-card__actions">
+                              <button
+                                className="delete-button"
+                                type="button"
+                                onClick={() => void handleDeleteDocument(document)}
+                                disabled={isUploading || isAuthenticating}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      </article>
-                    ))
+
+                          <div className="document-card__bottom">
+                            <span>{document.meta}</span>
+                            <div className="tag-list">
+                              {document.tags.map((tag) => (
+                                <span key={tag} className="tag">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div
+                            className="document-card__indicator"
+                            aria-label={`Type: ${typeIndicator.label}`}
+                          >
+                            <span
+                              className="document-card__indicator-line"
+                              style={{ backgroundColor: typeIndicator.color }}
+                            />
+                            <span className="document-card__indicator-label">
+                              {typeIndicator.label}
+                            </span>
+                          </div>
+                        </article>
+                      )
+                    })
                   ) : (
                     <div className="documents-empty">No files yet</div>
                   )}
