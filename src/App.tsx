@@ -60,25 +60,25 @@ const SUBJECTS_STORAGE_KEY = 'studierommet-subjects'
 const navItems = ['Dashboard', 'Library', 'Planner', 'Sessions', 'Insights']
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
 const subjectPalette = [
-  { background: 'rgba(151, 132, 112, 0.22)', border: 'rgba(151, 132, 112, 0.42)' },
-  { background: 'rgba(148, 161, 138, 0.22)', border: 'rgba(148, 161, 138, 0.42)' },
-  { background: 'rgba(179, 150, 126, 0.22)', border: 'rgba(179, 150, 126, 0.42)' },
-  { background: 'rgba(132, 147, 156, 0.22)', border: 'rgba(132, 147, 156, 0.42)' },
-  { background: 'rgba(164, 154, 116, 0.22)', border: 'rgba(164, 154, 116, 0.42)' },
-  { background: 'rgba(156, 132, 142, 0.22)', border: 'rgba(156, 132, 142, 0.42)' },
-  { background: 'rgba(128, 141, 126, 0.22)', border: 'rgba(128, 141, 126, 0.42)' },
-  { background: 'rgba(171, 160, 146, 0.22)', border: 'rgba(171, 160, 146, 0.42)' },
+  { background: 'rgba(220, 53, 69, 0.18)', border: 'rgba(220, 53, 69, 0.55)' },
+  { background: 'rgba(13, 110, 253, 0.16)', border: 'rgba(13, 110, 253, 0.5)' },
+  { background: 'rgba(25, 135, 84, 0.18)', border: 'rgba(25, 135, 84, 0.52)' },
+  { background: 'rgba(253, 126, 20, 0.18)', border: 'rgba(253, 126, 20, 0.52)' },
+  { background: 'rgba(111, 66, 193, 0.18)', border: 'rgba(111, 66, 193, 0.52)' },
+  { background: 'rgba(214, 51, 132, 0.18)', border: 'rgba(214, 51, 132, 0.52)' },
+  { background: 'rgba(12, 166, 120, 0.18)', border: 'rgba(12, 166, 120, 0.52)' },
+  { background: 'rgba(102, 16, 242, 0.18)', border: 'rgba(102, 16, 242, 0.52)' },
 ] as const
 
-const typeIndicatorMap: Record<string, { color: string; label: string }> = {
-  notes: { color: '#7f5f54', label: 'Notes' },
-  note: { color: '#7f5f54', label: 'Notes' },
-  lecture: { color: '#7a8b6f', label: 'Lecture' },
-  lectures: { color: '#7a8b6f', label: 'Lecture' },
-  reading: { color: '#8d7b5b', label: 'Reading' },
-  readings: { color: '#8d7b5b', label: 'Reading' },
-  assignment: { color: '#8d6f7f', label: 'Assignment' },
-  assignments: { color: '#8d6f7f', label: 'Assignment' },
+const typeIndicatorMap: Record<string, { symbol: string; label: string }> = {
+  notes: { symbol: '✎', label: 'Notes' },
+  note: { symbol: '✎', label: 'Notes' },
+  lecture: { symbol: '◉', label: 'Lecture' },
+  lectures: { symbol: '◉', label: 'Lecture' },
+  reading: { symbol: '◫', label: 'Reading' },
+  readings: { symbol: '◫', label: 'Reading' },
+  assignment: { symbol: '✓', label: 'Assignment' },
+  assignments: { symbol: '✓', label: 'Assignment' },
 }
 
 function getNow() {
@@ -141,7 +141,7 @@ function getSubjectTone(subject: string) {
   const normalizedSubject = subject.trim().toLowerCase()
 
   if (!normalizedSubject || normalizedSubject === 'unsorted') {
-    return { background: 'rgba(171, 160, 146, 0.18)', border: 'rgba(171, 160, 146, 0.34)' }
+    return { background: 'rgba(108, 117, 125, 0.16)', border: 'rgba(108, 117, 125, 0.38)' }
   }
 
   const hash = Array.from(normalizedSubject).reduce(
@@ -154,7 +154,7 @@ function getSubjectTone(subject: string) {
 
 function getTypeIndicator(type: string) {
   return typeIndicatorMap[type.trim().toLowerCase()] ?? {
-    color: '#7f5f54',
+    symbol: '•',
     label: type.trim() || 'File',
   }
 }
@@ -938,10 +938,9 @@ function App() {
                             className="document-card__indicator"
                             aria-label={`Type: ${typeIndicator.label}`}
                           >
-                            <span
-                              className="document-card__indicator-line"
-                              style={{ backgroundColor: typeIndicator.color }}
-                            />
+                            <span className="document-card__indicator-symbol">
+                              {typeIndicator.symbol}
+                            </span>
                             <span className="document-card__indicator-label">
                               {typeIndicator.label}
                             </span>

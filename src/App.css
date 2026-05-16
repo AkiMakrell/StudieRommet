@@ -458,12 +458,10 @@
   width: 1.4rem;
 }
 
-.document-card__indicator-line {
-  display: block;
-  width: 0.24rem;
-  min-height: 2.8rem;
-  flex: 1;
-  border-radius: 999px;
+.document-card__indicator-symbol {
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .document-card__indicator-label {
