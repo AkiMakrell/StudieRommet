@@ -37,6 +37,8 @@ type PlannerDraftSession = {
   endMinutes: number
 }
 
+type PlannerSelectionStage = 'start' | 'end'
+
 type TokenResponse = {
   access_token?: string
   error?: string
@@ -384,6 +386,10 @@ function App() {
   const [noteSubjectInput, setNoteSubjectInput] = useState('')
   const [plannerSessions, setPlannerSessions] = useState<PlannerSession[]>([])
   const [isPlannerSelecting, setIsPlannerSelecting] = useState(false)
+  const [plannerSelectionStage, setPlannerSelectionStage] =
+    useState<PlannerSelectionStage>('start')
+  const [plannerSelectionStartMinutes, setPlannerSelectionStartMinutes] =
+    useState<number | null>(null)
   const [plannerDraftSession, setPlannerDraftSession] = useState<PlannerDraftSession | null>(null)
   const [plannerSelectionMessage, setPlannerSelectionMessage] = useState('')
   const [accessToken, setAccessToken] = useState<string | null>(null)
@@ -399,7 +405,7 @@ function App() {
   const pendingUploadsRef = useRef<PendingUploadItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plannerTrackRef = useRef<HTMLDivElement>(null)
-  const plannerSelectionAnchorRef = useRef<number | null>(null)
+  const plannerPointerDownRef = useRef(false)
   const authModeRef = useRef<'manual' | 'auto'>('manual')
   const authTimeoutRef = useRef<number | null>(null)
 
@@ -868,12 +874,19 @@ function App() {
     setIsPlannerSelecting((currentValue) => {
       const nextValue = !currentValue
 
-      if (!nextValue) {
-        plannerSelectionAnchorRef.current = null
+      if (nextValue) {
+        plannerPointerDownRef.current = false
+        setPlannerSelectionStage('start')
+        setPlannerSelectionStartMinutes(null)
         setPlannerDraftSession(null)
+        setPlannerSelectionMessage('Release to set the start time.')
+      } else {
+        plannerPointerDownRef.current = false
+        setPlannerDraftSession(null)
+        setPlannerSelectionStage('start')
+        setPlannerSelectionStartMinutes(null)
+        setPlannerSelectionMessage('')
       }
-
-      setPlannerSelectionMessage('')
       return nextValue
     })
   }
@@ -886,26 +899,16 @@ function App() {
     if ((event.target as HTMLElement).closest('.planner-session')) {
       return
     }
-
-    const slotMinutes = getPlannerSlotMinutes(event.clientX)
-
-    if (slotMinutes === null) {
-      return
-    }
-
-    plannerSelectionAnchorRef.current = slotMinutes
-    setPlannerDraftSession({
-      startMinutes: slotMinutes,
-      endMinutes: slotMinutes + PLANNER_STEP_MINUTES,
-    })
-    setPlannerSelectionMessage('')
+    plannerPointerDownRef.current = true
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
   const handlePlannerTrackPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const anchorMinutes = plannerSelectionAnchorRef.current
-
-    if (anchorMinutes === null) {
+    if (
+      !plannerPointerDownRef.current ||
+      plannerSelectionStage !== 'end' ||
+      plannerSelectionStartMinutes === null
+    ) {
       return
     }
 
@@ -915,37 +918,44 @@ function App() {
       return
     }
 
-    setPlannerDraftSession(getPlannerDraftFromMinutes(anchorMinutes, slotMinutes))
+    setPlannerDraftSession(getPlannerDraftFromMinutes(plannerSelectionStartMinutes, slotMinutes))
   }
 
   const handlePlannerTrackPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const anchorMinutes = plannerSelectionAnchorRef.current
-
-    if (anchorMinutes === null) {
+    if (!plannerPointerDownRef.current) {
       return
     }
 
     const slotMinutes = getPlannerSlotMinutes(event.clientX)
-    const nextDraftSession =
-      slotMinutes === null
-        ? plannerDraftSession
-        : getPlannerDraftFromMinutes(anchorMinutes, slotMinutes)
-
-    plannerSelectionAnchorRef.current = null
+    plannerPointerDownRef.current = false
     event.currentTarget.releasePointerCapture(event.pointerId)
 
-    if (!nextDraftSession) {
+    if (slotMinutes === null) {
       return
     }
 
-    if (
-      hasPlannerOverlap(
-        plannerSessions,
-        nextDraftSession.startMinutes,
-        nextDraftSession.endMinutes,
-      )
-    ) {
-      setPlannerDraftSession(null)
+    if (plannerSelectionStage === 'start') {
+      setPlannerSelectionStartMinutes(slotMinutes)
+      setPlannerDraftSession({
+        startMinutes: slotMinutes,
+        endMinutes: slotMinutes + PLANNER_STEP_MINUTES,
+      })
+      setPlannerSelectionStage('end')
+      setPlannerSelectionMessage('Release again to set the end time.')
+      return
+    }
+
+    if (plannerSelectionStartMinutes === null) {
+      return
+    }
+
+    const nextDraftSession = getPlannerDraftFromMinutes(plannerSelectionStartMinutes, slotMinutes)
+
+    if (hasPlannerOverlap(plannerSessions, nextDraftSession.startMinutes, nextDraftSession.endMinutes)) {
+      setPlannerDraftSession({
+        startMinutes: plannerSelectionStartMinutes,
+        endMinutes: plannerSelectionStartMinutes + PLANNER_STEP_MINUTES,
+      })
       setPlannerSelectionMessage('This overlaps another session.')
       return
     }
@@ -961,6 +971,8 @@ function App() {
         },
       ].sort((left, right) => left.startMinutes - right.startMinutes),
     )
+    setPlannerSelectionStage('start')
+    setPlannerSelectionStartMinutes(null)
     setPlannerDraftSession(null)
     setPlannerSelectionMessage('')
     setIsPlannerSelecting(false)
