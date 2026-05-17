@@ -7,7 +7,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-type CurrentView = 'library' | 'planner' | 'note' | 'insights'
+type CurrentView = 'dashboard' | 'library' | 'planner' | 'note' | 'insights'
 
 type DocumentItem = {
   id?: string
@@ -93,12 +93,13 @@ const PLANNER_SESSIONS_STORAGE_KEY = 'studierommet-planner-sessions'
 const PLANNER_START_HOUR = 6
 const PLANNER_END_HOUR = 22
 const PLANNER_STEP_MINUTES = 5
+const DAILY_TREE_GOAL_MINUTES = 7 * 60
 const DEFAULT_AREA_NAME = 'Uni'
 const DEFAULT_AREA_NAMES = [DEFAULT_AREA_NAME, 'Business'] as const
 const ALL_AREAS_FILTER = 'All'
 
 const navItems: Array<{ label: string; view?: CurrentView }> = [
-  { label: 'Dashboard' },
+  { label: 'Dashboard', view: 'dashboard' },
   { label: 'Library', view: 'library' },
   { label: 'Planner', view: 'planner' },
   { label: 'Sessions' },
@@ -263,6 +264,14 @@ function getAverage(values: number[]) {
   }
 
   return values.reduce((total, value) => total + value, 0) / values.length
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function getProgressReveal(progress: number, start: number, end = start + 0.18) {
+  return clamp((progress - start) / (end - start), 0, 1)
 }
 
 function getPlannerSessionDateKey(session: PlannerSession, fallbackDateKey: string) {
@@ -781,9 +790,209 @@ function formatDriveMeta(createdTime?: string) {
   }).format(new Date(createdTime))}`
 }
 
+const treeLeafNodes = [
+  { cx: 114, cy: 154, r: 24, start: 0.12 },
+  { cx: 146, cy: 134, r: 28, start: 0.16 },
+  { cx: 184, cy: 128, r: 30, start: 0.2 },
+  { cx: 218, cy: 148, r: 24, start: 0.24 },
+  { cx: 104, cy: 198, r: 26, start: 0.28 },
+  { cx: 142, cy: 182, r: 32, start: 0.32 },
+  { cx: 182, cy: 176, r: 34, start: 0.36 },
+  { cx: 222, cy: 194, r: 28, start: 0.4 },
+  { cx: 132, cy: 224, r: 30, start: 0.44 },
+  { cx: 170, cy: 220, r: 36, start: 0.48 },
+  { cx: 210, cy: 226, r: 30, start: 0.52 },
+  { cx: 158, cy: 102, r: 18, start: 0.56 },
+  { cx: 202, cy: 104, r: 20, start: 0.6 },
+  { cx: 96, cy: 166, r: 16, start: 0.64 },
+  { cx: 238, cy: 172, r: 16, start: 0.68 },
+  { cx: 120, cy: 116, r: 14, start: 0.72 },
+  { cx: 228, cy: 120, r: 14, start: 0.76 },
+  { cx: 170, cy: 84, r: 14, start: 0.8 },
+] as const
+
+const treeFruitNodes = [
+  { cx: 140, cy: 170, start: 0.72 },
+  { cx: 190, cy: 160, start: 0.78 },
+  { cx: 124, cy: 212, start: 0.84 },
+  { cx: 210, cy: 206, start: 0.9 },
+  { cx: 171, cy: 118, start: 0.96 },
+] as const
+
+function DailyGrowthTree({ progress }: { progress: number }) {
+  const treeProgress = clamp(progress, 0, 1)
+  const trunkReveal = getProgressReveal(treeProgress, 0, 0.38)
+  const branchReveal = getProgressReveal(treeProgress, 0.2, 0.62)
+  const canopyReveal = getProgressReveal(treeProgress, 0.28, 0.9)
+  const auraReveal = getProgressReveal(treeProgress, 0.7, 1)
+  const trunkTopY = 292 - trunkReveal * 118
+  const trunkWidth = 18 + trunkReveal * 14
+
+  return (
+    <svg
+      className="daily-tree"
+      viewBox="0 0 340 380"
+      role="img"
+      aria-label={`Daily study tree at ${Math.round(treeProgress * 100)} percent growth`}
+    >
+      <defs>
+        <linearGradient id="tree-sky" x1="0%" x2="0%" y1="0%" y2="100%">
+          <stop offset="0%" stopColor="rgba(255, 247, 244, 0.98)" />
+          <stop offset="100%" stopColor="rgba(246, 236, 231, 0.92)" />
+        </linearGradient>
+        <linearGradient id="tree-ground" x1="0%" x2="0%" y1="0%" y2="100%">
+          <stop offset="0%" stopColor="rgba(104, 86, 78, 0.22)" />
+          <stop offset="100%" stopColor="rgba(104, 86, 78, 0.08)" />
+        </linearGradient>
+        <linearGradient id="tree-trunk" x1="0%" x2="100%" y1="0%" y2="100%">
+          <stop offset="0%" stopColor="#7a5849" />
+          <stop offset="100%" stopColor="#4b362f" />
+        </linearGradient>
+        <linearGradient id="tree-leaf" x1="0%" x2="100%" y1="0%" y2="100%">
+          <stop offset="0%" stopColor="#9f486a" />
+          <stop offset="55%" stopColor="#7f2d4c" />
+          <stop offset="100%" stopColor="#5f1834" />
+        </linearGradient>
+        <linearGradient id="tree-leaf-soft" x1="0%" x2="100%" y1="0%" y2="100%">
+          <stop offset="0%" stopColor="#c57893" />
+          <stop offset="100%" stopColor="#99516f" />
+        </linearGradient>
+      </defs>
+
+      <rect width="340" height="380" rx="28" fill="url(#tree-sky)" />
+      <ellipse
+        cx="170"
+        cy="310"
+        rx={96 + auraReveal * 18}
+        ry={26 + auraReveal * 10}
+        fill={`rgba(111, 29, 58, ${0.05 + auraReveal * 0.1})`}
+      />
+      <path
+        d="M38 304C86 268 132 276 170 300C214 328 264 324 314 294V380H38Z"
+        fill="url(#tree-ground)"
+      />
+      <circle
+        cx="90"
+        cy="82"
+        r={18 + auraReveal * 10}
+        fill={`rgba(255, 226, 198, ${0.22 + auraReveal * 0.16})`}
+      />
+
+      <g opacity={0.22 + treeProgress * 0.5}>
+        {[74, 112, 248, 272].map((x, index) => (
+          <circle
+            key={x}
+            cx={x}
+            cy={64 + index * 16}
+            r={2 + index * 0.4}
+            fill="rgba(111, 29, 58, 0.28)"
+          />
+        ))}
+      </g>
+
+      <g>
+        <path
+          d={`M170 306C${170 - trunkWidth} 275 ${168 - trunkWidth * 0.55} ${240 - trunkReveal * 34} ${168 - trunkWidth * 0.35} ${trunkTopY}C170 ${trunkTopY - 8} ${172 + trunkWidth * 0.45} ${238 - trunkReveal * 30} ${170 + trunkWidth} 306Z`}
+          fill="url(#tree-trunk)"
+        />
+        <path
+          d={`M170 ${206 - trunkReveal * 28}C147 ${194 - branchReveal * 10} 129 ${178 - branchReveal * 18} 116 ${156 - branchReveal * 26}`}
+          stroke="#5e4539"
+          strokeLinecap="round"
+          strokeWidth={6 + branchReveal * 4}
+          fill="none"
+          opacity={branchReveal}
+        />
+        <path
+          d={`M171 ${196 - trunkReveal * 24}C193 ${186 - branchReveal * 8} 212 ${170 - branchReveal * 16} 228 ${146 - branchReveal * 24}`}
+          stroke="#5e4539"
+          strokeLinecap="round"
+          strokeWidth={5 + branchReveal * 4}
+          fill="none"
+          opacity={branchReveal}
+        />
+        <path
+          d={`M166 ${230 - trunkReveal * 24}C144 ${222 - branchReveal * 8} 126 ${210 - branchReveal * 12} 112 ${190 - branchReveal * 16}`}
+          stroke="#6e5142"
+          strokeLinecap="round"
+          strokeWidth={4 + branchReveal * 3}
+          fill="none"
+          opacity={branchReveal * 0.9}
+        />
+        <path
+          d={`M176 ${226 - trunkReveal * 18}C196 ${220 - branchReveal * 8} 212 ${208 - branchReveal * 14} 224 ${192 - branchReveal * 18}`}
+          stroke="#6e5142"
+          strokeLinecap="round"
+          strokeWidth={4 + branchReveal * 3}
+          fill="none"
+          opacity={branchReveal * 0.88}
+        />
+      </g>
+
+      <g>
+        {treeLeafNodes.map((leaf, index) => {
+          const reveal = getProgressReveal(canopyReveal, leaf.start * 0.7, leaf.start * 0.7 + 0.16)
+          const scale = 0.45 + reveal * 0.55
+          const fill = index % 3 === 0 ? 'url(#tree-leaf-soft)' : 'url(#tree-leaf)'
+
+          return (
+            <circle
+              key={`${leaf.cx}-${leaf.cy}`}
+              cx={leaf.cx}
+              cy={leaf.cy}
+              r={leaf.r * scale}
+              fill={fill}
+              opacity={reveal}
+            />
+          )
+        })}
+      </g>
+
+      <g opacity={0.08 + auraReveal * 0.28}>
+        <ellipse cx="170" cy="182" rx={98 + canopyReveal * 18} ry={78 + canopyReveal * 18} fill="rgba(111, 29, 58, 0.2)" />
+      </g>
+
+      <g>
+        {treeFruitNodes.map((fruit, index) => {
+          const reveal = getProgressReveal(treeProgress, fruit.start, fruit.start + 0.08)
+
+          return (
+            <g key={`${fruit.cx}-${fruit.start}`} opacity={reveal}>
+              <path
+                d={`M${fruit.cx} ${fruit.cy - 8}C${fruit.cx + 2} ${fruit.cy - 14} ${fruit.cx + 6} ${fruit.cy - 18} ${fruit.cx + 10} ${fruit.cy - 20}`}
+                stroke="#6e5142"
+                strokeWidth="2"
+                fill="none"
+              />
+              <circle
+                cx={fruit.cx}
+                cy={fruit.cy}
+                r={5 + index * 0.25}
+                fill={index % 2 === 0 ? '#f0bc7d' : '#f4a66a'}
+              />
+            </g>
+          )
+        })}
+      </g>
+
+      <g opacity={0.35 + treeProgress * 0.3}>
+        {Array.from({ length: 10 }, (_, index) => (
+          <path
+            key={index}
+            d={`M${74 + index * 22} 308C${76 + index * 22} 300 ${80 + index * 22} 296 ${84 + index * 22} 292`}
+            stroke="rgba(80, 122, 98, 0.55)"
+            strokeLinecap="round"
+            strokeWidth="2"
+          />
+        ))}
+      </g>
+    </svg>
+  )
+}
+
 function App() {
   const [now, setNow] = useState(getNow)
-  const [currentView, setCurrentView] = useState<CurrentView>('library')
+  const [currentView, setCurrentView] = useState<CurrentView>('dashboard')
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [areas, setAreas] = useState<string[]>(loadStoredAreas)
   const [subjectDefinitions, setSubjectDefinitions] = useState<SubjectDefinition[]>(
@@ -1049,6 +1258,76 @@ function App() {
       reviewedPlannerSessions.filter((session) => session.outcome === 'completed'),
     [reviewedPlannerSessions],
   )
+  const todayPlannerSessions = useMemo(
+    () =>
+      plannerSessions
+        .filter(
+          (session) => getPlannerSessionDateKey(session, todayDateKey) === todayDateKey,
+        )
+        .sort((left, right) => left.startMinutes - right.startMinutes),
+    [plannerSessions, todayDateKey],
+  )
+  const todayCompletedSessions = useMemo(
+    () =>
+      completedPlannerSessions.filter(
+        (session) => getPlannerSessionDateKey(session, todayDateKey) === todayDateKey,
+      ),
+    [completedPlannerSessions, todayDateKey],
+  )
+  const todayReviewedSessions = useMemo(
+    () =>
+      reviewedPlannerSessions.filter(
+        (session) => getPlannerSessionDateKey(session, todayDateKey) === todayDateKey,
+      ),
+    [reviewedPlannerSessions, todayDateKey],
+  )
+  const activeTodaySession = useMemo(
+    () =>
+      todayPlannerSessions.find(
+        (session) =>
+          nowInMinutes >= session.startMinutes && nowInMinutes < session.endMinutes,
+      ) ?? null,
+    [nowInMinutes, todayPlannerSessions],
+  )
+  const activeTodaySessionElapsedMinutes = useMemo(() => {
+    if (!activeTodaySession) {
+      return 0
+    }
+
+    return clamp(nowInMinutes - activeTodaySession.startMinutes, 0, activeTodaySession.endMinutes - activeTodaySession.startMinutes)
+  }, [activeTodaySession, nowInMinutes])
+  const todayCompletedMinutes = useMemo(
+    () =>
+      todayCompletedSessions.reduce(
+        (total, session) => total + (session.endMinutes - session.startMinutes),
+        0,
+      ),
+    [todayCompletedSessions],
+  )
+  const todayGrowthMinutes = Math.min(
+    todayCompletedMinutes +
+      (activeTodaySession && activeTodaySession.outcome !== 'completed'
+        ? activeTodaySessionElapsedMinutes
+        : 0),
+    DAILY_TREE_GOAL_MINUTES,
+  )
+  const dailyTreeProgress = todayGrowthMinutes / DAILY_TREE_GOAL_MINUTES
+  const dailyTreeRemainingMinutes = Math.max(
+    DAILY_TREE_GOAL_MINUTES - todayGrowthMinutes,
+    0,
+  )
+  const todayCompletionRate =
+    todayReviewedSessions.length > 0
+      ? (todayCompletedSessions.length / todayReviewedSessions.length) * 100
+      : null
+  const todayUpcomingSessions = useMemo(
+    () => todayPlannerSessions.filter((session) => session.endMinutes > nowInMinutes),
+    [nowInMinutes, todayPlannerSessions],
+  )
+  const nextTodaySession = todayUpcomingSessions.find(
+    (session) =>
+      !activeTodaySession || session.id !== activeTodaySession.id,
+  ) ?? null
   const currentWeekStart = useMemo(() => getStartOfWeek(now), [now])
   const lastWeekStart = useMemo(() => addDays(currentWeekStart, -7), [currentWeekStart])
   const currentWeekStartKey = useMemo(() => formatDateKey(currentWeekStart), [currentWeekStart])
@@ -2051,7 +2330,7 @@ function App() {
           aria-label="StudieRommet home"
           onClick={(event) => {
             event.preventDefault()
-            setCurrentView('library')
+            setCurrentView('dashboard')
           }}
         >
           StudieRommet
@@ -2093,7 +2372,212 @@ function App() {
       </header>
 
       <main className="dashboard">
-        {currentView === 'library' ? (
+        {currentView === 'dashboard' ? (
+          <section className="dashboard-panel dashboard-home" aria-labelledby="home-title">
+            <div className="dashboard-panel__header">
+              <div>
+                <p className="eyebrow">Dashboard</p>
+                <h1 id="home-title">Grow today</h1>
+              </div>
+            </div>
+
+            <div className="dashboard-home__content">
+              <section className="dashboard-home__hero">
+                <article className="tree-card">
+                  <div className="tree-card__copy">
+                    <span className="tree-card__eyebrow">Daily tree</span>
+                    <strong className="tree-card__value">{formatDuration(todayGrowthMinutes)}</strong>
+                    <span className="tree-card__subtle">
+                      {dailyTreeRemainingMinutes > 0
+                        ? `${formatDuration(dailyTreeRemainingMinutes)} until full growth`
+                        : 'Fully grown for today'}
+                    </span>
+                  </div>
+
+                  <div className="tree-card__visual">
+                    <DailyGrowthTree progress={dailyTreeProgress} />
+                  </div>
+
+                  <div className="tree-card__footer">
+                    <div className="tree-progress">
+                      <div className="tree-progress__labels">
+                        <span>{Math.round(dailyTreeProgress * 100)}%</span>
+                        <span>7h goal</span>
+                      </div>
+                      <div className="tree-progress__track" aria-label="Daily tree progress">
+                        <span
+                          className="tree-progress__fill"
+                          style={{ width: `${dailyTreeProgress * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </article>
+
+                <div className="dashboard-home__stats">
+                  <article className="home-stat-card home-stat-card--primary">
+                    <span className="home-stat-card__label">Today</span>
+                    <strong className="home-stat-card__value">
+                      {formatDuration(todayCompletedMinutes)}
+                    </strong>
+                    <span className="home-stat-card__meta">
+                      {todayCompletedSessions.length} completed session
+                      {todayCompletedSessions.length === 1 ? '' : 's'}
+                    </span>
+                  </article>
+
+                  <article className="home-stat-card">
+                    <span className="home-stat-card__label">Streak</span>
+                    <strong className="home-stat-card__value">{currentStreak}</strong>
+                    <span className="home-stat-card__meta">Best {bestStreak}</span>
+                  </article>
+
+                  <article className="home-stat-card">
+                    <span className="home-stat-card__label">This week</span>
+                    <strong className="home-stat-card__value">
+                      {formatDuration(currentWeekStats?.completedMinutes ?? 0)}
+                    </strong>
+                    <span className="home-stat-card__meta">
+                      {formatMetricDelta(overviewComparisons.minutes, 'm')} vs last week
+                    </span>
+                  </article>
+
+                  <article className="home-stat-card">
+                    <span className="home-stat-card__label">Completion</span>
+                    <strong className="home-stat-card__value">
+                      {todayCompletionRate === null ? '--' : formatPercent(todayCompletionRate)}
+                    </strong>
+                    <span className="home-stat-card__meta">
+                      {todayReviewedSessions.length > 0
+                        ? `${todayReviewedSessions.length} reviewed today`
+                        : 'No reviews yet'}
+                    </span>
+                  </article>
+                </div>
+              </section>
+
+              <section className="dashboard-home__secondary">
+                <article className="dashboard-surface">
+                  <div className="dashboard-surface__header">
+                    <h2>Today&apos;s sessions</h2>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        setSelectedPlannerDateKey(todayDateKey)
+                        setCurrentView('planner')
+                      }}
+                    >
+                      Open planner
+                    </button>
+                  </div>
+
+                  {todayPlannerSessions.length > 0 ? (
+                    <div className="today-session-list">
+                      {todayPlannerSessions.map((session) => {
+                        const sessionArea = getPlannerSessionArea(session)
+                        const areaTone = getAreaTone(sessionArea)
+                        const isActive =
+                          activeTodaySession?.id === session.id &&
+                          nowInMinutes >= session.startMinutes &&
+                          nowInMinutes < session.endMinutes
+                        const statusLabel =
+                          session.outcome === 'completed'
+                            ? 'Completed'
+                            : session.outcome === 'abandoned'
+                              ? 'Abandoned'
+                              : isActive
+                                ? 'In progress'
+                                : session.startMinutes > nowInMinutes
+                                  ? 'Planned'
+                                  : 'Awaiting review'
+
+                        return (
+                          <article key={session.id} className="today-session-item">
+                            <div className="today-session-item__title">
+                              <span
+                                className="area-pill area-pill--small"
+                                style={{
+                                  backgroundColor: areaTone.background,
+                                  borderColor: areaTone.border,
+                                  color: areaTone.text,
+                                }}
+                              >
+                                {sessionArea}
+                              </span>
+                              <div>
+                                <strong>{getPlannerSessionTitle(session)}</strong>
+                                {getSubjectFocusValue(session.subject) ? (
+                                  <span>{getSubjectFocusValue(session.subject)}</span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="today-session-item__meta">
+                              <span>
+                                {formatTimelineTime(session.startMinutes)} -{' '}
+                                {formatTimelineTime(session.endMinutes)}
+                              </span>
+                              <span
+                                className={
+                                  statusLabel === 'Completed'
+                                    ? 'today-session-item__status is-complete'
+                                    : statusLabel === 'Abandoned'
+                                      ? 'today-session-item__status is-abandoned'
+                                      : statusLabel === 'In progress'
+                                        ? 'today-session-item__status is-active'
+                                        : 'today-session-item__status'
+                                }
+                              >
+                                {statusLabel}
+                              </span>
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="dashboard-empty-state">No sessions planned yet</div>
+                  )}
+                </article>
+
+                <div className="dashboard-stack">
+                  <article className="dashboard-surface dashboard-surface--accent">
+                    <span className="home-stat-card__label">Next up</span>
+                    <strong className="home-stat-card__value dashboard-surface__value">
+                      {nextTodaySession ? getPlannerSessionTitle(nextTodaySession) : 'Nothing queued'}
+                    </strong>
+                    <span className="home-stat-card__meta">
+                      {nextTodaySession
+                        ? `${formatTimelineTime(nextTodaySession.startMinutes)} - ${formatTimelineTime(nextTodaySession.endMinutes)}`
+                        : 'Plan a session when you are ready'}
+                    </span>
+                  </article>
+
+                  <article className="dashboard-surface">
+                    <div className="dashboard-surface__header">
+                      <h2>This week</h2>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => setCurrentView('insights')}
+                      >
+                        Open insights
+                      </button>
+                    </div>
+                    <div className="dashboard-week-strip">
+                      {weekSeries.slice(-4).map((week) => (
+                        <div key={week.key} className="dashboard-week-strip__item">
+                          <span>{week.label}</span>
+                          <strong>{formatDuration(week.completedMinutes)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </section>
+        ) : currentView === 'library' ? (
           <section className="dashboard-panel" aria-labelledby="dashboard-title">
             <div className="dashboard-panel__header">
               <div>
