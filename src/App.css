@@ -527,6 +527,223 @@
   border-radius: inherit;
 }
 
+.insights-page {
+  padding-bottom: 1.5rem;
+}
+
+.insights-content {
+  display: grid;
+  gap: 1.5rem;
+  padding: 0 1.5rem 1.5rem;
+}
+
+.insights-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.insights-section__header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+.insights-summary-grid,
+.insights-two-column {
+  display: grid;
+  gap: 1rem;
+}
+
+.insights-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.insights-two-column {
+  grid-template-columns: minmax(0, 1.55fr) minmax(18rem, 0.95fr);
+}
+
+.insights-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.insight-card,
+.insight-surface {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.insight-card--primary {
+  background: linear-gradient(180deg, rgba(111, 29, 58, 0.08), rgba(255, 255, 255, 0.68));
+}
+
+.insight-card__label {
+  color: var(--mole);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.insight-card__value {
+  color: var(--ink);
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.insight-card__change {
+  color: var(--mole);
+  font-size: 0.88rem;
+}
+
+.insight-card__change.is-positive {
+  color: #337659;
+}
+
+.insight-card__change.is-negative {
+  color: #9b304c;
+}
+
+.weekly-trend {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.75rem;
+  min-height: 16rem;
+}
+
+.weekly-trend__item {
+  display: grid;
+  gap: 0.55rem;
+  justify-items: center;
+}
+
+.weekly-trend__bar-shell {
+  display: flex;
+  align-items: end;
+  width: 100%;
+  height: 11rem;
+  padding: 0.35rem;
+  border-radius: 1rem;
+  background: rgba(104, 86, 78, 0.08);
+}
+
+.weekly-trend__bar {
+  display: block;
+  width: 100%;
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, rgba(111, 29, 58, 0.56), rgba(111, 29, 58, 0.92));
+}
+
+.weekly-trend__item strong,
+.weekly-trend__item span {
+  color: var(--mole);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.heatmap-cell {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 0.9rem;
+  color: var(--ink);
+  font-size: 0.8rem;
+}
+
+.ranked-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.ranked-list__item {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.ranked-list__top,
+.ranked-list__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ranked-list__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.ranked-list__bar-shell {
+  overflow: hidden;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: rgba(104, 86, 78, 0.12);
+}
+
+.ranked-list__bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(111, 29, 58, 0.72), rgba(111, 29, 58, 0.4));
+}
+
+.ranked-list__meta {
+  flex-wrap: wrap;
+}
+
+.ranked-list__top strong,
+.ranked-list__meta span,
+.ranked-list__title strong {
+  color: var(--mole);
+  font-size: 0.86rem;
+}
+
+.ranked-list__title strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.hourly-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.hourly-grid__cell {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.95rem;
+  border-radius: 1rem;
+}
+
+.hourly-grid__cell strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.hourly-grid__cell span {
+  color: var(--mole);
+  font-size: 0.82rem;
+}
+
+.insights-empty {
+  padding: 0 1.5rem 1.5rem;
+  color: var(--mole);
+}
+
 .planner-setup-dialog {
   width: min(100%, 32rem);
 }
@@ -904,6 +1121,12 @@
     min-width: 46rem;
   }
 
+  .insights-summary-grid,
+  .insights-two-column,
+  .hourly-grid {
+    grid-template-columns: 1fr;
+  }
+
   .planner-header-actions {
     width: 100%;
     justify-content: space-between;
@@ -928,6 +1151,14 @@
 
   .planner-header-actions {
     flex-wrap: wrap;
+  }
+
+  .insights-content {
+    padding-inline: 1rem;
+  }
+
+  .heatmap-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .dashboard-panel__header {

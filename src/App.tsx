@@ -7,7 +7,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-type CurrentView = 'library' | 'planner' | 'note'
+type CurrentView = 'library' | 'planner' | 'note' | 'insights'
 
 type DocumentItem = {
   id?: string
@@ -102,7 +102,7 @@ const navItems: Array<{ label: string; view?: CurrentView }> = [
   { label: 'Library', view: 'library' },
   { label: 'Planner', view: 'planner' },
   { label: 'Sessions' },
-  { label: 'Insights' },
+  { label: 'Insights', view: 'insights' },
 ]
 const filters = ['All', 'Notes', 'Lectures', 'Assignments', 'Readings']
 const areaToneFamilies = [
@@ -210,6 +210,59 @@ function createDateFromKey(dateKey: string) {
   }
 
   return new Date(year, month - 1, day)
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date)
+  nextDate.setDate(nextDate.getDate() + days)
+  return nextDate
+}
+
+function getStartOfWeek(date: Date) {
+  const startOfWeek = new Date(date)
+  const dayOffset = (startOfWeek.getDay() + 6) % 7
+  startOfWeek.setHours(0, 0, 0, 0)
+  startOfWeek.setDate(startOfWeek.getDate() - dayOffset)
+  return startOfWeek
+}
+
+function formatDuration(minutes: number) {
+  if (minutes <= 0) {
+    return '0m'
+  }
+
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+
+  if (hours === 0) {
+    return `${remainingMinutes}m`
+  }
+
+  if (remainingMinutes === 0) {
+    return `${hours}h`
+  }
+
+  return `${hours}h ${remainingMinutes}m`
+}
+
+function formatMetricDelta(value: number, suffix = '') {
+  if (value === 0) {
+    return `0${suffix}`
+  }
+
+  return `${value > 0 ? '+' : ''}${value}${suffix}`
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value)}%`
+}
+
+function getAverage(values: number[]) {
+  if (values.length === 0) {
+    return null
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length
 }
 
 function getPlannerSessionDateKey(session: PlannerSession, fallbackDateKey: string) {
@@ -983,6 +1036,270 @@ function App() {
       ),
     [activePlannerAreaFilter, selectedPlannerSessions],
   )
+  const reviewedPlannerSessions = useMemo(
+    () =>
+      plannerSessions.filter(
+        (session) =>
+          session.outcome === 'completed' || session.outcome === 'abandoned',
+      ),
+    [plannerSessions],
+  )
+  const completedPlannerSessions = useMemo(
+    () =>
+      reviewedPlannerSessions.filter((session) => session.outcome === 'completed'),
+    [reviewedPlannerSessions],
+  )
+  const currentWeekStart = useMemo(() => getStartOfWeek(now), [now])
+  const lastWeekStart = useMemo(() => addDays(currentWeekStart, -7), [currentWeekStart])
+  const currentWeekStartKey = useMemo(() => formatDateKey(currentWeekStart), [currentWeekStart])
+  const lastWeekStartKey = useMemo(() => formatDateKey(lastWeekStart), [lastWeekStart])
+  const weekSeries = useMemo(() => {
+    return Array.from({ length: 8 }, (_, index) => {
+      const weekStart = addDays(currentWeekStart, (index - 7) * 7)
+      const weekEnd = addDays(weekStart, 7)
+      const weekKey = formatDateKey(weekStart)
+      const completed = completedPlannerSessions.filter((session) => {
+        const sessionDate = createDateFromKey(getPlannerSessionDateKey(session, todayDateKey))
+        return sessionDate >= weekStart && sessionDate < weekEnd
+      })
+      const reviewed = reviewedPlannerSessions.filter((session) => {
+        const sessionDate = createDateFromKey(getPlannerSessionDateKey(session, todayDateKey))
+        return sessionDate >= weekStart && sessionDate < weekEnd
+      })
+      const focusAverage = getAverage(
+        completed
+          .map((session) => session.focusScore)
+          .filter((score): score is number => typeof score === 'number'),
+      )
+
+      return {
+        key: weekKey,
+        label: new Intl.DateTimeFormat(undefined, {
+          day: 'numeric',
+          month: 'short',
+        }).format(weekStart),
+        completedMinutes: completed.reduce(
+          (total, session) => total + (session.endMinutes - session.startMinutes),
+          0,
+        ),
+        completedCount: completed.length,
+        reviewedCount: reviewed.length,
+        completionRate:
+          reviewed.length > 0 ? (completed.length / reviewed.length) * 100 : null,
+        averageFocus: focusAverage,
+      }
+    })
+  }, [completedPlannerSessions, currentWeekStart, reviewedPlannerSessions, todayDateKey])
+  const currentWeekStats =
+    weekSeries.find((week) => week.key === currentWeekStartKey) ?? weekSeries.at(-1) ?? null
+  const lastWeekStats =
+    weekSeries.find((week) => week.key === lastWeekStartKey) ??
+    weekSeries.at(-2) ??
+    null
+  const weeklyTrendMaxMinutes = Math.max(
+    ...weekSeries.map((week) => week.completedMinutes),
+    1,
+  )
+  const completedDayKeys = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          completedPlannerSessions.map((session) =>
+            getPlannerSessionDateKey(session, todayDateKey),
+          ),
+        ),
+      ).sort(),
+    [completedPlannerSessions, todayDateKey],
+  )
+  const currentStreak = useMemo(() => {
+    let streak = 0
+
+    for (let offset = 0; ; offset += 1) {
+      const dateKey = formatDateKey(addDays(createDateFromKey(todayDateKey), -offset))
+
+      if (!completedDayKeys.includes(dateKey)) {
+        break
+      }
+
+      streak += 1
+    }
+
+    return streak
+  }, [completedDayKeys, todayDateKey])
+  const bestStreak = useMemo(() => {
+    if (completedDayKeys.length === 0) {
+      return 0
+    }
+
+    let best = 0
+    let current = 0
+    let previousDateKey = ''
+
+    for (const dateKey of completedDayKeys) {
+      if (
+        previousDateKey &&
+        formatDateKey(addDays(createDateFromKey(previousDateKey), 1)) === dateKey
+      ) {
+        current += 1
+      } else {
+        current = 1
+      }
+
+      best = Math.max(best, current)
+      previousDateKey = dateKey
+    }
+
+    return best
+  }, [completedDayKeys])
+  const allTimeCompletedMinutes = completedPlannerSessions.reduce(
+    (total, session) => total + (session.endMinutes - session.startMinutes),
+    0,
+  )
+  const allTimeFocusAverage = getAverage(
+    completedPlannerSessions
+      .map((session) => session.focusScore)
+      .filter((score): score is number => typeof score === 'number'),
+  )
+  const dailyHeatmap = useMemo(() => {
+    return Array.from({ length: 28 }, (_, index) => {
+      const date = addDays(createDateFromKey(todayDateKey), index - 27)
+      const dateKey = formatDateKey(date)
+      const sessions = completedPlannerSessions.filter(
+        (session) => getPlannerSessionDateKey(session, todayDateKey) === dateKey,
+      )
+      const minutes = sessions.reduce(
+        (total, session) => total + (session.endMinutes - session.startMinutes),
+        0,
+      )
+
+      return {
+        dateKey,
+        dayLabel: new Intl.DateTimeFormat(undefined, { day: 'numeric' }).format(date),
+        minutes,
+        sessions: sessions.length,
+      }
+    })
+  }, [completedPlannerSessions, todayDateKey])
+  const heatmapMaxMinutes = Math.max(...dailyHeatmap.map((day) => day.minutes), 1)
+  const areaStats = useMemo(() => {
+    return areaFilterOptions
+      .map((areaName) => {
+        const completed = completedPlannerSessions.filter(
+          (session) => getPlannerSessionArea(session) === areaName,
+        )
+        const reviewed = reviewedPlannerSessions.filter(
+          (session) => getPlannerSessionArea(session) === areaName,
+        )
+        const focusAverage = getAverage(
+          completed
+            .map((session) => session.focusScore)
+            .filter((score): score is number => typeof score === 'number'),
+        )
+
+        return {
+          area: areaName,
+          minutes: completed.reduce(
+            (total, session) => total + (session.endMinutes - session.startMinutes),
+            0,
+          ),
+          completedCount: completed.length,
+          abandonedCount: reviewed.filter((session) => session.outcome === 'abandoned').length,
+          averageFocus: focusAverage,
+        }
+      })
+      .filter((area) => area.minutes > 0 || area.completedCount > 0 || area.abandonedCount > 0)
+      .sort((left, right) => right.minutes - left.minutes)
+  }, [areaFilterOptions, completedPlannerSessions, reviewedPlannerSessions])
+  const areaStatsMaxMinutes = Math.max(...areaStats.map((area) => area.minutes), 1)
+  const subjectStats = useMemo(() => {
+    const groupedSubjects = new Map<
+      string,
+      {
+        area: string
+        label: string
+        minutes: number
+        completedCount: number
+        focusScores: number[]
+      }
+    >()
+
+    for (const session of completedPlannerSessions) {
+      const area = getPlannerSessionArea(session)
+      const label = getSubjectFocusValue(session.subject) || 'No focus'
+      const key = `${area}::${label}`
+      const entry =
+        groupedSubjects.get(key) ?? {
+          area,
+          label,
+          minutes: 0,
+          completedCount: 0,
+          focusScores: [],
+        }
+
+      entry.minutes += session.endMinutes - session.startMinutes
+      entry.completedCount += 1
+
+      if (typeof session.focusScore === 'number') {
+        entry.focusScores.push(session.focusScore)
+      }
+
+      groupedSubjects.set(key, entry)
+    }
+
+    return Array.from(groupedSubjects.values())
+      .map((entry) => ({
+        ...entry,
+        averageFocus: getAverage(entry.focusScores),
+      }))
+      .sort((left, right) => right.minutes - left.minutes)
+      .slice(0, 6)
+  }, [completedPlannerSessions])
+  const subjectStatsMaxMinutes = Math.max(...subjectStats.map((subject) => subject.minutes), 1)
+  const hourlyStats = useMemo(() => {
+    return Array.from(
+      { length: PLANNER_END_HOUR - PLANNER_START_HOUR },
+      (_, index) => {
+        const hour = PLANNER_START_HOUR + index
+        const sessions = completedPlannerSessions.filter(
+          (session) => Math.floor(session.startMinutes / 60) === hour,
+        )
+        const focusAverage = getAverage(
+          sessions
+            .map((session) => session.focusScore)
+            .filter((score): score is number => typeof score === 'number'),
+        )
+
+        return {
+          hour,
+          label: new Intl.DateTimeFormat(undefined, {
+            hour: 'numeric',
+            hour12: false,
+          }).format(new Date(2024, 0, 1, hour, 0)),
+          minutes: sessions.reduce(
+            (total, session) => total + (session.endMinutes - session.startMinutes),
+            0,
+          ),
+          completedCount: sessions.length,
+          averageFocus: focusAverage,
+        }
+      },
+    )
+  }, [completedPlannerSessions])
+  const hourlyMaxMinutes = Math.max(...hourlyStats.map((hour) => hour.minutes), 1)
+  const overviewComparisons = {
+    minutes:
+      (currentWeekStats?.completedMinutes ?? 0) - (lastWeekStats?.completedMinutes ?? 0),
+    sessions:
+      (currentWeekStats?.completedCount ?? 0) - (lastWeekStats?.completedCount ?? 0),
+    completionRate:
+      Math.round(
+        (currentWeekStats?.completionRate ?? 0) - (lastWeekStats?.completionRate ?? 0),
+      ),
+    focus:
+      Math.round(
+        ((currentWeekStats?.averageFocus ?? 0) - (lastWeekStats?.averageFocus ?? 0)) * 10,
+      ) / 10,
+  }
 
   useEffect(() => {
     const previousTodayDateKey = previousTodayDateKeyRef.current
@@ -2491,6 +2808,346 @@ function App() {
                 </section>
               </div>
             ) : null}
+          </section>
+        ) : currentView === 'insights' ? (
+          <section className="dashboard-panel insights-page" aria-labelledby="insights-title">
+            <div className="dashboard-panel__header">
+              <div>
+                <p className="eyebrow">Insights</p>
+                <h1 id="insights-title">Study stats</h1>
+              </div>
+            </div>
+
+            {reviewedPlannerSessions.length > 0 ? (
+              <div className="insights-content">
+                <section className="insights-section">
+                  <div className="insights-summary-grid">
+                    <article className="insight-card insight-card--primary">
+                      <span className="insight-card__label">This week</span>
+                      <strong className="insight-card__value">
+                        {formatDuration(currentWeekStats?.completedMinutes ?? 0)}
+                      </strong>
+                      <span
+                        className={
+                          overviewComparisons.minutes > 0
+                            ? 'insight-card__change is-positive'
+                            : overviewComparisons.minutes < 0
+                              ? 'insight-card__change is-negative'
+                              : 'insight-card__change'
+                        }
+                      >
+                        {formatMetricDelta(overviewComparisons.minutes, 'm')} vs last week
+                      </span>
+                    </article>
+
+                    <article className="insight-card">
+                      <span className="insight-card__label">Completed</span>
+                      <strong className="insight-card__value">
+                        {currentWeekStats?.completedCount ?? 0}
+                      </strong>
+                      <span
+                        className={
+                          overviewComparisons.sessions > 0
+                            ? 'insight-card__change is-positive'
+                            : overviewComparisons.sessions < 0
+                              ? 'insight-card__change is-negative'
+                              : 'insight-card__change'
+                        }
+                      >
+                        {formatMetricDelta(overviewComparisons.sessions)} sessions
+                      </span>
+                    </article>
+
+                    <article className="insight-card">
+                      <span className="insight-card__label">Completion rate</span>
+                      <strong className="insight-card__value">
+                        {formatPercent(currentWeekStats?.completionRate ?? 0)}
+                      </strong>
+                      <span
+                        className={
+                          overviewComparisons.completionRate > 0
+                            ? 'insight-card__change is-positive'
+                            : overviewComparisons.completionRate < 0
+                              ? 'insight-card__change is-negative'
+                              : 'insight-card__change'
+                        }
+                      >
+                        {formatMetricDelta(overviewComparisons.completionRate, ' pts')}
+                      </span>
+                    </article>
+
+                    <article className="insight-card">
+                      <span className="insight-card__label">Average focus</span>
+                      <strong className="insight-card__value">
+                        {currentWeekStats?.averageFocus?.toFixed(1) ?? '0.0'}
+                      </strong>
+                      <span
+                        className={
+                          overviewComparisons.focus > 0
+                            ? 'insight-card__change is-positive'
+                            : overviewComparisons.focus < 0
+                              ? 'insight-card__change is-negative'
+                              : 'insight-card__change'
+                        }
+                      >
+                        {formatMetricDelta(overviewComparisons.focus)}
+                      </span>
+                    </article>
+
+                    <article className="insight-card">
+                      <span className="insight-card__label">Current streak</span>
+                      <strong className="insight-card__value">{currentStreak}</strong>
+                      <span className="insight-card__change">
+                        Best {bestStreak}
+                      </span>
+                    </article>
+                  </div>
+                </section>
+
+                <section className="insights-section">
+                  <div className="insights-section__header">
+                    <h2>Progression</h2>
+                  </div>
+
+                  <div className="insights-two-column">
+                    <div className="insight-surface">
+                      <div className="weekly-trend">
+                        {weekSeries.map((week) => (
+                          <div key={week.key} className="weekly-trend__item">
+                            <div className="weekly-trend__bar-shell">
+                              <span
+                                className="weekly-trend__bar"
+                                style={{
+                                  height: `${Math.max(
+                                    (week.completedMinutes / weeklyTrendMaxMinutes) * 100,
+                                    week.completedMinutes > 0 ? 8 : 0,
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                            <strong>{formatDuration(week.completedMinutes)}</strong>
+                            <span>{week.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="insights-stack">
+                      <article className="insight-surface">
+                        <span className="insight-card__label">Last week</span>
+                        <strong className="insight-card__value">
+                          {formatDuration(lastWeekStats?.completedMinutes ?? 0)}
+                        </strong>
+                        <span className="insight-card__change">
+                          {lastWeekStats?.completedCount ?? 0} completed
+                        </span>
+                      </article>
+
+                      <article className="insight-surface">
+                        <span className="insight-card__label">All time</span>
+                        <strong className="insight-card__value">
+                          {formatDuration(allTimeCompletedMinutes)}
+                        </strong>
+                        <span className="insight-card__change">
+                          {completedPlannerSessions.length} completed sessions
+                        </span>
+                      </article>
+
+                      <article className="insight-surface">
+                        <span className="insight-card__label">All-time focus</span>
+                        <strong className="insight-card__value">
+                          {allTimeFocusAverage?.toFixed(1) ?? '0.0'}
+                        </strong>
+                        <span className="insight-card__change">
+                          {reviewedPlannerSessions.length} reviewed sessions
+                        </span>
+                      </article>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="insights-section">
+                  <div className="insights-section__header">
+                    <h2>Consistency</h2>
+                  </div>
+
+                  <div className="insights-two-column">
+                    <div className="insight-surface">
+                      <div className="heatmap-grid">
+                        {dailyHeatmap.map((day) => (
+                          <div
+                            key={day.dateKey}
+                            className="heatmap-cell"
+                            style={{
+                              backgroundColor:
+                                day.minutes > 0
+                                  ? `rgba(111, 29, 58, ${0.12 + (day.minutes / heatmapMaxMinutes) * 0.36})`
+                                  : 'rgba(104, 86, 78, 0.08)',
+                            }}
+                            title={`${day.dateKey} - ${formatDuration(day.minutes)}`}
+                          >
+                            <span>{day.dayLabel}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="insights-stack">
+                      <article className="insight-surface">
+                        <span className="insight-card__label">Days studied</span>
+                        <strong className="insight-card__value">
+                          {completedDayKeys.length}
+                        </strong>
+                        <span className="insight-card__change">with completed work</span>
+                      </article>
+
+                      <article className="insight-surface">
+                        <span className="insight-card__label">Past 28 days</span>
+                        <strong className="insight-card__value">
+                          {formatDuration(
+                            dailyHeatmap.reduce((total, day) => total + day.minutes, 0),
+                          )}
+                        </strong>
+                        <span className="insight-card__change">
+                          {dailyHeatmap.filter((day) => day.minutes > 0).length} active days
+                        </span>
+                      </article>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="insights-section">
+                  <div className="insights-section__header">
+                    <h2>Allocation</h2>
+                  </div>
+
+                  <div className="insights-two-column">
+                    <div className="insight-surface">
+                      <div className="ranked-list">
+                        {areaStats.map((areaStat) => {
+                          const areaTone = getAreaTone(areaStat.area)
+
+                          return (
+                            <div key={areaStat.area} className="ranked-list__item">
+                              <div className="ranked-list__top">
+                                <div className="ranked-list__title">
+                                  <span
+                                    className="area-pill"
+                                    style={{
+                                      backgroundColor: areaTone.background,
+                                      borderColor: areaTone.border,
+                                      color: areaTone.text,
+                                    }}
+                                  >
+                                    {areaStat.area}
+                                  </span>
+                                </div>
+                                <strong>{formatDuration(areaStat.minutes)}</strong>
+                              </div>
+                              <div className="ranked-list__bar-shell">
+                                <span
+                                  className="ranked-list__bar"
+                                  style={{
+                                    width: `${(areaStat.minutes / areaStatsMaxMinutes) * 100}%`,
+                                  }}
+                                />
+                              </div>
+                              <div className="ranked-list__meta">
+                                <span>{areaStat.completedCount} completed</span>
+                                <span>{areaStat.abandonedCount} abandoned</span>
+                                <span>
+                                  Focus {areaStat.averageFocus?.toFixed(1) ?? '0.0'}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="insight-surface">
+                      <div className="ranked-list">
+                        {subjectStats.map((subjectStat) => {
+                          const areaTone = getAreaTone(subjectStat.area)
+
+                          return (
+                            <div
+                              key={`${subjectStat.area}-${subjectStat.label}`}
+                              className="ranked-list__item"
+                            >
+                              <div className="ranked-list__top">
+                                <div className="ranked-list__title">
+                                  <span
+                                    className="area-pill area-pill--small"
+                                    style={{
+                                      backgroundColor: areaTone.background,
+                                      borderColor: areaTone.border,
+                                      color: areaTone.text,
+                                    }}
+                                  >
+                                    {subjectStat.area}
+                                  </span>
+                                  <strong>{subjectStat.label}</strong>
+                                </div>
+                                <strong>{formatDuration(subjectStat.minutes)}</strong>
+                              </div>
+                              <div className="ranked-list__bar-shell">
+                                <span
+                                  className="ranked-list__bar"
+                                  style={{
+                                    width: `${(subjectStat.minutes / subjectStatsMaxMinutes) * 100}%`,
+                                  }}
+                                />
+                              </div>
+                              <div className="ranked-list__meta">
+                                <span>{subjectStat.completedCount} completed</span>
+                                <span>
+                                  Focus {subjectStat.averageFocus?.toFixed(1) ?? '0.0'}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="insights-section">
+                  <div className="insights-section__header">
+                    <h2>Study hours</h2>
+                  </div>
+
+                  <div className="insight-surface">
+                    <div className="hourly-grid">
+                      {hourlyStats.map((hour) => (
+                        <div
+                          key={hour.hour}
+                          className="hourly-grid__cell"
+                          style={{
+                            backgroundColor:
+                              hour.minutes > 0
+                                ? `rgba(111, 29, 58, ${0.1 + (hour.minutes / hourlyMaxMinutes) * 0.34})`
+                                : 'rgba(104, 86, 78, 0.08)',
+                          }}
+                        >
+                          <strong>{hour.label}</strong>
+                          <span>{formatDuration(hour.minutes)}</span>
+                          <span>{hour.completedCount} sessions</span>
+                          <span>
+                            Focus {hour.averageFocus?.toFixed(1) ?? '0.0'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              </div>
+            ) : (
+              <div className="insights-empty">
+                No session stats yet
+              </div>
+            )}
           </section>
         ) : (
           <section className="note-page" aria-labelledby="note-page-title">
