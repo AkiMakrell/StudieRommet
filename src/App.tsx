@@ -202,6 +202,16 @@ function formatDateKey(date: Date) {
   return `${year}-${month}-${day}`
 }
 
+function createDateFromKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number)
+
+  if (!year || !month || !day) {
+    return new Date()
+  }
+
+  return new Date(year, month - 1, day)
+}
+
 function getPlannerSessionDateKey(session: PlannerSession, fallbackDateKey: string) {
   return session.sessionDate ?? fallbackDateKey
 }
@@ -773,6 +783,7 @@ function App() {
   const plannerPointerDownRef = useRef(false)
   const plannerSyncingSessionIdsRef = useRef<Set<string>>(new Set())
   const plannerReviewSubmitLockRef = useRef(false)
+  const previousTodayDateKeyRef = useRef(formatDateKey(now))
   const authModeRef = useRef<'manual' | 'auto'>('manual')
   const authTimeoutRef = useRef<number | null>(null)
 
@@ -827,18 +838,23 @@ function App() {
     [now],
   )
 
+  const todayDateKey = useMemo(() => formatDateKey(now), [now])
+  const [selectedPlannerDateKey, setSelectedPlannerDateKey] = useState(todayDateKey)
+  const selectedPlannerDate = useMemo(
+    () => createDateFromKey(selectedPlannerDateKey),
+    [selectedPlannerDateKey],
+  )
   const formattedPlannerDate = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
         weekday: 'long',
         day: 'numeric',
         month: 'long',
-      }).format(now),
-    [now],
+      }).format(selectedPlannerDate),
+    [selectedPlannerDate],
   )
-
-  const todayDateKey = useMemo(() => formatDateKey(now), [now])
   const nowInMinutes = useMemo(() => now.getHours() * 60 + now.getMinutes(), [now])
+  const isViewingToday = selectedPlannerDateKey === todayDateKey
   const areaFilterOptions = useMemo(
     () =>
       sortAreaNames([
@@ -864,12 +880,13 @@ function App() {
   const plannerStartMinutes = PLANNER_START_HOUR * 60
   const plannerEndMinutes = PLANNER_END_HOUR * 60
   const plannerTotalMinutes = plannerEndMinutes - plannerStartMinutes
-  const todaysPlannerSessions = useMemo(
+  const selectedPlannerSessions = useMemo(
     () =>
       plannerSessions.filter(
-        (session) => getPlannerSessionDateKey(session, todayDateKey) === todayDateKey,
+        (session) =>
+          getPlannerSessionDateKey(session, todayDateKey) === selectedPlannerDateKey,
       ),
-    [plannerSessions, todayDateKey],
+    [plannerSessions, selectedPlannerDateKey, todayDateKey],
   )
 
   const plannerHours = useMemo(
@@ -885,19 +902,33 @@ function App() {
   )
 
   const nowMarkerOffset = useMemo(() => {
-    if (nowInMinutes < plannerStartMinutes || nowInMinutes > plannerEndMinutes) {
+    if (
+      !isViewingToday ||
+      nowInMinutes < plannerStartMinutes ||
+      nowInMinutes > plannerEndMinutes
+    ) {
       return null
     }
 
     return ((nowInMinutes - plannerStartMinutes) / plannerTotalMinutes) * 100
-  }, [nowInMinutes, plannerEndMinutes, plannerStartMinutes, plannerTotalMinutes])
+  }, [
+    isViewingToday,
+    nowInMinutes,
+    plannerEndMinutes,
+    plannerStartMinutes,
+    plannerTotalMinutes,
+  ])
 
   const activePlannerSession = useMemo(() => {
-    return todaysPlannerSessions.find(
+    if (!isViewingToday) {
+      return null
+    }
+
+    return selectedPlannerSessions.find(
       (session) =>
         nowInMinutes >= session.startMinutes && nowInMinutes < session.endMinutes,
     )
-  }, [nowInMinutes, todaysPlannerSessions])
+  }, [isViewingToday, nowInMinutes, selectedPlannerSessions])
 
   const activePlannerProgress = useMemo(() => {
     if (!activePlannerSession) {
@@ -945,13 +976,23 @@ function App() {
   )
   const filteredPlannerSessions = useMemo(
     () =>
-      todaysPlannerSessions.filter((session) =>
+      selectedPlannerSessions.filter((session) =>
         activePlannerAreaFilter === ALL_AREAS_FILTER
           ? true
           : getPlannerSessionArea(session) === activePlannerAreaFilter,
       ),
-    [activePlannerAreaFilter, todaysPlannerSessions],
+    [activePlannerAreaFilter, selectedPlannerSessions],
   )
+
+  useEffect(() => {
+    const previousTodayDateKey = previousTodayDateKeyRef.current
+
+    if (selectedPlannerDateKey === previousTodayDateKey) {
+      setSelectedPlannerDateKey(todayDateKey)
+    }
+
+    previousTodayDateKeyRef.current = todayDateKey
+  }, [selectedPlannerDateKey, todayDateKey])
 
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
@@ -1604,7 +1645,7 @@ function App() {
     const nextSessionEnd =
       Math.max(plannerSelectionStartMinutes, slotMinutes) + PLANNER_STEP_MINUTES
 
-    if (hasPlannerOverlap(todaysPlannerSessions, nextSessionStart, nextSessionEnd)) {
+    if (hasPlannerOverlap(selectedPlannerSessions, nextSessionStart, nextSessionEnd)) {
       setPlannerSelectionMessage('This overlaps another session.')
       return
     }
@@ -1619,7 +1660,7 @@ function App() {
             note: plannerPendingNote,
             startMinutes: nextSessionStart,
             endMinutes: nextSessionEnd,
-            sessionDate: todayDateKey,
+            sessionDate: selectedPlannerDateKey,
           },
         ].sort((left, right) => left.startMinutes - right.startMinutes),
     )
@@ -2054,13 +2095,24 @@ function App() {
                 <h1 id="planner-title">{formattedPlannerDate}</h1>
               </div>
 
-              <button
-                className="upload-button"
-                type="button"
-                onClick={isPlannerSelecting ? handleTogglePlannerSelection : handleOpenPlannerSetup}
-              >
-                {isPlannerSelecting ? 'Cancel' : 'Add session'}
-              </button>
+              <div className="planner-header-actions">
+                <label className="planner-date-field">
+                  <span className="sr-only">Planner date</span>
+                  <input
+                    type="date"
+                    value={selectedPlannerDateKey}
+                    onChange={(event) => setSelectedPlannerDateKey(event.target.value)}
+                  />
+                </label>
+
+                <button
+                  className="upload-button"
+                  type="button"
+                  onClick={isPlannerSelecting ? handleTogglePlannerSelection : handleOpenPlannerSetup}
+                >
+                  {isPlannerSelecting ? 'Cancel' : 'Add session'}
+                </button>
+              </div>
             </div>
 
             <div className="panel-filter-bar">
